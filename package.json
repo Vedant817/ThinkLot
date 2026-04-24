@@ -36,6 +36,7 @@
 		"@sveltejs/package": "^2.5.7",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@tailwindcss/vite": "^4.2.2",
+		"@types/node": "^25.6.0",
 		"publint": "^0.3.18",
 		"svelte": "^5.55.2",
 		"svelte-check": "^4.4.6",
@@ -45,5 +46,8 @@
 	},
 	"keywords": [
 		"svelte"
-	]
+	],
+	"dependencies": {
+		"convex": "^1.36.1"
+	}
 }
