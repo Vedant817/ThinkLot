@@ -21,6 +21,11 @@
 /* ---------------------------------------------------------------------------
    Light — warm-neutral paper, not cream. Pure white would glare on a phone in
    daylight; the small warm cast keeps long reading sessions comfortable.
+
+   Every foreground token below is measured against WCAG AA. --ink-3 clears
+   4.5:1 on paper, panel AND sunk; --lot clears 4.5:1 on paper, lot-soft AND
+   sunk; --rule-strong clears the 3:1 that WCAG 1.4.11 requires of a non-text
+   boundary, which matters because it is the only thing outlining a text input.
    --------------------------------------------------------------------------- */
 :root,
 [data-theme='light'] {
@@ -28,17 +33,17 @@
 	--panel: #f6f6f4;
 	--sunk: #eeeeeb;
 	--rule: #e4e4de;
-	--rule-strong: #c9c9c2;
+	--rule-strong: #85857d;
 
 	--ink: #141418;
 	--ink-2: #55554f;
-	--ink-3: #8b8b82;
+	--ink-3: #6f6f68;
 
 	--signal: #5b4bdb;
 	--signal-ink: #ffffff;
 	--signal-soft: #eeecfd;
 
-	--lot: #b26a00;
+	--lot: #8a5300;
 	--lot-soft: #fdf1dc;
 
 	--ok: #0f6b45;
@@ -60,11 +65,11 @@
 	--panel: #17171b;
 	--sunk: #121216;
 	--rule: #26262c;
-	--rule-strong: #3a3a42;
+	--rule-strong: #6b6b75;
 
 	--ink: #f4f4f1;
 	--ink-2: #a8a8a2;
-	--ink-3: #74746e;
+	--ink-3: #8d8d86;
 
 	--signal: #8b7cf6;
 	--signal-ink: #14101f;

@@ -16,6 +16,11 @@ export type Idea = {
 	title: string;
 	description?: string;
 	problem?: string;
+	/**
+	 * First 160 characters of `description`, supplied by the list query. The list
+	 * deliberately does not ship the full (up to 20 KB) body.
+	 */
+	preview?: string;
 	status: IdeaStatus;
 	tags: string[];
 	impact?: number;

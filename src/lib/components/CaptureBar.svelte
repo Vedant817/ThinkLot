@@ -45,10 +45,26 @@
 		pending = draft.trim() || null;
 	}
 
-	function autoGrow(node: HTMLTextAreaElement) {
+	/**
+	 * Grow the field to fit its content.
+	 *
+	 * This was a `use:` action. A Svelte action with no argument list is invoked
+	 * exactly once at mount - the compiled output was
+	 * `$.action(textarea_1, ($$node) => autoGrow?.($$node))` with no re-run, because
+	 * only an action that takes parameters gets a render effect to re-evaluate it.
+	 * So the textarea stayed one row tall forever, `max-h-80` was unreachable dead
+	 * CSS, and every multi-line dictated blob scrolled inside a single-line box.
+	 *
+	 * An `$effect` keyed on `draft` re-runs on every keystroke instead.
+	 */
+	$effect(() => {
+		const node = textarea;
+		if (!node) return;
+		// `draft` is the dependency, read explicitly so the effect tracks it.
+		void draft;
 		node.style.height = 'auto';
 		node.style.height = `${Math.min(node.scrollHeight, 320)}px`;
-	}
+	});
 
 	async function capture(explicitSource?: CaptureSource) {
 		const raw = draft.trim();
@@ -60,6 +76,13 @@
 
 		saving = true;
 		problem = null;
+
+		// Restore focus SYNCHRONOUSLY, inside the gesture that submitted.
+		// `await`-ing first and calling focus() afterwards does not reopen an iOS
+		// keyboard - the browser has already processed the tap and blurred the field.
+		// On a phone, tapping PARK is the only capture gesture there is, so losing
+		// focus here costs a re-tap per idea.
+		textarea?.focus();
 
 		try {
 			const ideaId = await convex.mutation<string>(api.ideas.capture, {
@@ -97,10 +120,23 @@
 	onkeydown={(event) => {
 		// The capture bar is the product. Reaching for the mouse to type a thought
 		// is the friction this whole app exists to remove.
-		if (event.key === '/' && document.activeElement !== textarea) {
-			event.preventDefault();
-			textarea?.focus();
-		}
+		//
+		// Two guards the first version lacked: modifiers must be absent (otherwise
+		// Ctrl+/ and Cmd+/ are swallowed), and it must not fire while typing into
+		// *any* text field - previously it only excluded the capture box, so `/`
+		// was untypable in the search field.
+		if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+
+		const active = document.activeElement;
+		const typing =
+			active instanceof HTMLInputElement ||
+			active instanceof HTMLTextAreaElement ||
+			(active instanceof HTMLElement && active.isContentEditable);
+
+		if (typing) return;
+
+		event.preventDefault();
+		textarea?.focus();
 	}}
 />
 
@@ -134,7 +170,6 @@
 				bind:value={draft}
 				oninput={trackInput}
 				onkeydown={onKeydown}
-				use:autoGrow
 				rows="1"
 				autofocus
 				spellcheck="true"
@@ -163,7 +198,8 @@
 			<p
 				class="font-mono text-[11px] tracking-wide"
 				class:text-bad={problem !== null}
-				class:text-ink-3={problem === null}
+				class:text-warn={problem === null && pending !== null}
+				class:text-ink-3={problem === null && pending === null}
 				role={problem ? 'alert' : 'status'}
 				aria-live="polite"
 			>
@@ -171,10 +207,10 @@
 					{problem}
 				{:else if saving}
 					Saving…
+				{:else if pending}
+					Unsaved draft
 				{:else if justSaved}
 					<span class="text-ok">{justSaved}</span>
-				{:else if pending}
-					<span>Unsaved draft</span>
 				{:else}
 					<span>Enter to park · Shift+Enter for a new line</span>
 				{/if}

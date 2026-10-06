@@ -18,7 +18,15 @@ export type ScoreInput = Scored & { favorite?: boolean; archived?: boolean };
 export function priorityScore(idea: Scored): number | null {
 	const { impact, effort, confidence } = idea;
 	if (impact === undefined || effort === undefined || confidence === undefined) return null;
+
+	// Guard on finiteness, not just `> 0`. `NaN <= 0` is false, so an `effort` of
+	// NaN used to sail through and produce `scoreBand(NaN) === 'low'` with
+	// `displayScore(NaN) === "NaN"` painted into the plate.
+	if (!Number.isFinite(impact) || !Number.isFinite(effort) || !Number.isFinite(confidence)) {
+		return null;
+	}
 	if (effort <= 0) return null;
+
 	return (impact * confidence) / effort;
 }
 
@@ -60,7 +68,12 @@ export function displayScore(score: number | null): string {
 	return score >= 100 ? String(Math.round(score)) : score.toFixed(1);
 }
 
-/** `LOT-0042` — zero padded to four so plates sort lexicographically as text. */
+/**
+ * `LOT-0042` — zero padded to four so plates line up in a fixed-width column and
+ * sort the same whether compared as text or as a number. The counter behind it is
+ * monotonic (see `counters` in the Convex schema), so a plate is never handed to
+ * two different ideas.
+ */
 export function lotPlate(seq: number): string {
 	return `LOT-${String(seq).padStart(4, '0')}`;
 }

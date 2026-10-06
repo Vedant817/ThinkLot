@@ -2,7 +2,7 @@
 	import CaptureBar from '$lib/components/CaptureBar.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { convex } from '$lib/convex/client.svelte';
-	import { watchQuery } from '$lib/convex/query.svelte';
+	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../convex/_generated/api';
 	import { byPriority, displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
@@ -12,38 +12,70 @@
 	let showArchived = $state(false);
 	let sortBy = $state<'capture' | 'priority'>('capture');
 
-	let listHandle = $state<ReturnType<typeof watchQuery<Idea[]>> | null>(null);
-	let statsHandle = $state<ReturnType<typeof watchQuery<IdeaStats>> | null>(null);
+	/**
+	 * Subscription handles are deliberately NOT `$state`.
+	 *
+	 * The previous version made them reactive and then disposed the old one
+	 * inside the same `$effect` that created the new one. That reads and writes
+	 * the same tracked value in one body, so Svelte re-scheduled the effect on
+	 * every write: 1001 effect runs, 2002 WebSocket subscribe messages, then
+	 * `effect_update_depth_exceeded`. The page never settled.
+	 *
+	 * Reactivity of the *data* comes from `handle.current`, which is itself a
+	 * rune inside `watchQuery`. The handle object only has to exist; nothing
+	 * about it needs to be reactive.
+	 */
+	let listHandle = $state<QueryHandle<{ ideas: Idea[]; truncated: boolean; total: number }> | null>(null);
+	let statsHandle = $state<QueryHandle<IdeaStats | undefined> | null>(null);
 
 	$effect(() => {
 		convex.start();
 	});
 
-	// Re-subscribing on a filter change is the whole point: Convex only ships the
-	// rows that match, so filtering does not re-run in the browser.
+	// Only `showArchived` is tracked here, which is exactly when a re-subscribe
+	// is warranted. Tag and text filtering run in the browser because they are
+	// instant-response interactions and re-querying per keystroke would be worse.
 	$effect(() => {
-		listHandle?.dispose();
-		statsHandle?.dispose();
-		listHandle = watchQuery<Idea[]>(convex.client!, api.ideas.list, {
-			includeArchived: showArchived
-		});
-		statsHandle = watchQuery<IdeaStats>(convex.client!, api.ideas.stats, {});
+		const includeArchived = showArchived;
+
+		const nextList = watchQuery<{ ideas: Idea[]; truncated: boolean; total: number }>(
+			convex.client!,
+			api.ideas.list,
+			{ includeArchived }
+		);
+		const nextStats = watchQuery<IdeaStats>(convex.client!, api.ideas.stats, {});
+		// WRITE ONLY. The original bug was an effect that both disposed and
+		// recreated the handles it tracked - it READ listHandle to call dispose, then
+		// WROTE listHandle, so Svelte re-scheduled it every time: 1001 runs, 2002
+		// WebSocket subscribe messages, then effect_update_depth_exceeded. As long as
+		// this body never reads the handles, writing them is safe.
+		listHandle = nextList;
+		statsHandle = nextStats;
+
 		return () => {
-			listHandle?.dispose();
-			statsHandle?.dispose();
+			nextList.dispose();
+			nextStats.dispose();
 		};
 	});
 
-	const ideas = $derived(listHandle?.current ?? []);
+	/**
+	 * `list` returns a projection without the (up to 20 KB) description and
+	 * transcript bodies, plus a `truncated` flag. Reading whole documents here is
+	 * what pushed a 400-idea lot past Convex's 16 MiB per-execution limit and
+	 * bricked the app with no way back.
+	 */
+	const lot: Idea[] = $derived(listHandle?.current?.ideas ?? []);
+	const truncated = $derived(listHandle?.current?.truncated ?? false);
+	const totalIdeas = $derived(listHandle?.current?.total ?? 0);
 
 	const allTags = $derived(
-		Array.from(new Set(ideas.flatMap((idea) => idea.tags))).sort((a, b) => a.localeCompare(b))
+		Array.from(new Set(lot.flatMap((idea) => idea.tags))).sort((a, b) => a.localeCompare(b))
 	);
 
 	const visible = $derived.by(() => {
 		const needle = search.trim().toLowerCase();
 
-		let rows = ideas.filter((idea) =>
+		let rows = lot.filter((idea) =>
 			tagFilter.length === 0 ? true : tagFilter.every((t) => idea.tags.includes(t))
 		);
 
@@ -51,7 +83,7 @@
 			rows = rows.filter(
 				(idea) =>
 					idea.title.toLowerCase().includes(needle) ||
-					(idea.description ?? '').toLowerCase().includes(needle) ||
+					(idea.preview ?? '').toLowerCase().includes(needle) ||
 					idea.tags.some((t) => t.includes(needle))
 			);
 		}
@@ -59,7 +91,7 @@
 		return sortBy === 'priority' ? [...rows].sort(byPriority) : rows;
 	});
 
-	const stats = $derived(statsHandle?.current);
+	const stats: IdeaStats | undefined = $derived(statsHandle?.current);
 
 	function toggleTag(tag: string) {
 		tagFilter = tagFilter.includes(tag)
@@ -200,15 +232,24 @@
 	{#if visible.length === 0}
 		<div class="rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
 			<p class="font-mono text-sm text-ink-2">
-				{ideas.length === 0 ? 'Nothing parked yet.' : 'Nothing matches those filters.'}
+				{lot.length === 0 ? 'Nothing parked yet.' : 'Nothing matches those filters.'}
 			</p>
 			<p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-3">
-				{ideas.length === 0
+				{lot.length === 0
 					? 'Use the bar above. Half a sentence is enough — you can make it useful later.'
 					: 'Clear the search or pick fewer tags.'}
 			</p>
 		</div>
 	{:else}
+		<!--
+			The lot caps a single response so a large backlog cannot brick the app.
+			Saying so is better than silently showing a partial list.
+		-->
+		{#if truncated}
+			<p class="mb-3 rounded-md border border-warn/25 bg-warn-soft px-3 py-2 font-mono text-[11px] tracking-wide text-warn">
+				Showing the {lot.length} most recent of {totalIdeas}. Older ideas need search or tags.
+			</p>
+		{/if}
 		<ul class="rule-y overflow-hidden rounded-lg border border-rule bg-paper">
 			{#each visible as idea (idea._id)}
 				{@const score = priorityScore(idea)}
@@ -256,8 +297,8 @@
 							{/if}
 						</div>
 
-						{#if idea.description}
-							<p class="mt-1 line-clamp-2 text-sm leading-6 text-ink-2">{idea.description}</p>
+						{#if idea.preview}
+							<p class="mt-1 line-clamp-2 text-sm leading-6 text-ink-2">{idea.preview}</p>
 						{/if}
 
 						<div class="mt-2 flex flex-wrap items-center gap-2">
@@ -281,7 +322,7 @@
 								type="button"
 								onclick={() => setStatus(idea, upNext)}
 								title={`Move to ${upNext}`}
-								class="rounded px-2 py-1 font-mono text-[11px] tracking-wider text-ink-3 uppercase opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sunk hover:text-ink focus-visible:opacity-100"
+								class="rounded px-2 py-1.5 font-mono text-[11px] tracking-wider text-ink-3 uppercase transition-opacity hover:bg-sunk hover:text-ink md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
 							>
 								→ {upNext}
 							</button>
@@ -302,7 +343,7 @@
 							type="button"
 							onclick={() => archive(idea)}
 							aria-label="Archive this idea"
-							class="rounded px-1.5 py-1 text-sm text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-sunk hover:text-ink focus-visible:opacity-100"
+							class="rounded px-2 py-1.5 text-sm text-ink-3 transition-opacity hover:bg-sunk hover:text-ink md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
 						>
 							⤓
 						</button>

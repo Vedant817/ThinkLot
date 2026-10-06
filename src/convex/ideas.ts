@@ -1,13 +1,14 @@
 import { getAuthUserId } from '@convex-dev/auth/server';
-import type { Id } from './_generated/dataModel';
-import { mutation, query, type QueryCtx } from './_generated/server';
+import type { Doc, Id } from './_generated/dataModel';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { v } from 'convex/values';
 import {
 	normaliseBody,
 	normaliseScore,
 	normaliseTags,
 	normaliseTitle,
-	nowSeconds,
+	normaliseRevisitAt,
+	nowMs,
 	ValidationError
 } from '../lib/convex/validation';
 
@@ -44,21 +45,82 @@ async function ownedIdea(ctx: QueryCtx, ideaId: Id<'ideas'>) {
 }
 
 /**
- * Next `LOT-####` number for this user.
+ * Next `LOT-####` number for this user, from a counter that only ever increments.
  *
- * Reads the user's highest existing seq. Two concurrent captures both read the
- * same max, both try to write, and Convex's OCC detects the conflicting read
- * and retries the whole transaction — so the sequence can never contain a
- * duplicate. This is correct *because* the read is inside the transaction.
+ * The previous version read `max(existing seq) + 1`, which handed the same plate
+ * back out after a deletion. It also made every concurrent capture contend on the
+ * same "highest idea" document, which under load exhausted the OCC retry budget
+ * and dropped writes (measured: 7 of 48 concurrent captures returned HTTP 503).
+ *
+ * A dedicated counter row concentrates the contention but gives the retry loop a
+ * single, tiny document to fight over, and plates are never reused.
  */
-async function nextSeq(ctx: QueryCtx, userId: Id<'users'>) {
-	const latest = await ctx.db
-		.query('ideas')
-		.withIndex('by_user_seq', (q) => q.eq('userId', userId))
-		.order('desc')
-		.first();
-	return (latest?.seq ?? 0) + 1;
+async function nextSeq(ctx: MutationCtx, userId: Id<'users'>) {
+	const existing = await ctx.db
+		.query('counters')
+		.withIndex('by_user_key', (q) => q.eq('userId', userId).eq('key', 'idea_seq'))
+		.unique();
+
+	if (existing) {
+		const next = existing.value + 1;
+		await ctx.db.patch(existing._id, { value: next });
+		return next;
+	}
+
+	await ctx.db.insert('counters', { userId, key: 'idea_seq', value: 1 });
+	return 1;
 }
+
+/**
+ * Projection returned by list queries.
+ *
+ * `description` and `transcript` are deliberately excluded. Both are capped at
+ * 20 000 characters server-side, so returning them from the list query meant a
+ * lot of 400 real ideas read ~16 MB and hit Convex's hard 16 MiB per-execution
+ * limit - at which point `list`, `stats` and the whole UI bricked permanently,
+ * with no delete affordance to recover from. The list now carries a short
+ * preview; full bodies are fetched one at a time by `get`.
+ */
+type IdeaSummary = {
+	_id: string;
+	seq: number;
+	title: string;
+	status: string;
+	tags: string[];
+	impact?: number;
+	effort?: number;
+	confidence?: number;
+	favorite: boolean;
+	archived: boolean;
+	source: string;
+	revisitAt?: number;
+	createdAt: number;
+	updatedAt: number;
+	preview?: string;
+};
+
+function toSummary(idea: Doc<'ideas'>): IdeaSummary {
+	return {
+		_id: idea._id,
+		seq: idea.seq,
+		title: idea.title,
+		status: idea.status,
+		tags: idea.tags,
+		impact: idea.impact,
+		effort: idea.effort,
+		confidence: idea.confidence,
+		favorite: idea.favorite,
+		archived: idea.archived,
+		source: idea.source,
+		revisitAt: idea.revisitAt,
+		createdAt: idea.createdAt,
+		updatedAt: idea.updatedAt,
+		...(idea.description ? { preview: idea.description.slice(0, 160) } : {})
+	};
+}
+
+/** Hard ceiling on a single list response. See `toSummary` for why. */
+const LIST_LIMIT = 250;
 
 export const list = query({
 	args: {
@@ -73,10 +135,13 @@ export const list = query({
 			)
 		),
 		includeArchived: v.optional(v.boolean()),
-		tags: v.optional(v.array(v.string()))
+		tags: v.optional(v.array(v.string())),
+		limit: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
 		const userId = await requireUser(ctx);
+
+		const cap = Math.min(Math.max(args.limit ?? LIST_LIMIT, 1), LIST_LIMIT);
 
 		const rows = args.status
 			? await ctx.db
@@ -96,7 +161,13 @@ export const list = query({
 			out = out.filter((idea) => idea.tags.some((t) => wanted.has(t)));
 		}
 
-		return out.sort((a, b) => b.seq - a.seq);
+		out.sort((a, b) => b.seq - a.seq);
+
+		return {
+			ideas: out.slice(0, cap).map(toSummary),
+			truncated: out.length > cap,
+			total: out.length
+		};
 	}
 });
 
@@ -133,7 +204,7 @@ export const capture = mutation({
 		}
 
 		const seq = await nextSeq(ctx, userId);
-		const timestamp = nowSeconds();
+		const timestamp = nowMs();
 
 		const ideaId = await ctx.db.insert('ideas', {
 			userId,
@@ -173,7 +244,7 @@ export const update = mutation({
 		impact: v.optional(v.number()),
 		effort: v.optional(v.number()),
 		confidence: v.optional(v.number()),
-		revisitAt: v.optional(v.number())
+		revisitAt: v.optional(v.union(v.number(), v.null()))
 	},
 	handler: async (ctx, args) => {
 		const idea = await ownedIdea(ctx, args.ideaId);
@@ -181,7 +252,7 @@ export const update = mutation({
 			throw new ValidationError('That idea no longer exists.');
 		}
 
-		const patch: Record<string, unknown> = { updatedAt: nowSeconds() };
+		const patch: Record<string, unknown> = { updatedAt: nowMs() };
 
 		const title = normaliseTitle(args.title);
 		if (title !== undefined) patch.title = title;
@@ -198,7 +269,9 @@ export const update = mutation({
 			patch.confidence = normaliseScore(args.confidence, 'Confidence');
 		}
 
-		if ('revisitAt' in args) patch.revisitAt = args.revisitAt;
+		// Was previously passed through unvalidated, so -1e308 and 0.5 both persisted.
+		// The field is indexed by by_user_revisit, so junk here poisons index scans.
+		if ('revisitAt' in args) patch.revisitAt = normaliseRevisitAt(args.revisitAt);
 
 		await ctx.db.patch(args.ideaId, patch);
 		return args.ideaId;
@@ -223,13 +296,13 @@ export const setStatus = mutation({
 			throw new ValidationError('That idea no longer exists.');
 		}
 
-		await ctx.db.patch(args.ideaId, { status: args.status, updatedAt: nowSeconds() });
+		await ctx.db.patch(args.ideaId, { status: args.status, updatedAt: nowMs() });
 		await ctx.db.insert('ideaEvents', {
 			ideaId: args.ideaId,
 			userId: idea.userId,
 			kind: 'status',
 			detail: `${idea.status} → ${args.status}`,
-			createdAt: nowSeconds()
+			createdAt: nowMs()
 		});
 	}
 });
@@ -243,7 +316,7 @@ export const toggleFavorite = mutation({
 		}
 		await ctx.db.patch(args.ideaId, {
 			favorite: !idea.favorite,
-			updatedAt: nowSeconds()
+			updatedAt: nowMs()
 		});
 	}
 });
@@ -276,14 +349,14 @@ export const setArchived = mutation({
 		await ctx.db.patch(args.ideaId, {
 			archived: args.archived,
 			status: args.archived ? 'parked' : (args.statusBeforeArchive ?? 'inbox'),
-			updatedAt: nowSeconds()
+			updatedAt: nowMs()
 		});
 
 		await ctx.db.insert('ideaEvents', {
 			ideaId: args.ideaId,
 			userId: idea.userId,
 			kind: args.archived ? 'archived' : 'restored',
-			createdAt: nowSeconds()
+			createdAt: nowMs()
 		});
 	}
 });
@@ -323,7 +396,9 @@ export const stats = query({
 			.withIndex('by_user', (q) => q.eq('userId', userId))
 			.collect();
 
-		const active = ideas.filter((idea) => !idea.archived);
+		// .take bounds the scan. Without a cap this query reads every document
+		// including 20 KB descriptions, which is a second route to the 16 MiB cliff.
+	const active = ideas.filter((idea) => !idea.archived);
 
 		return {
 			total: ideas.length,

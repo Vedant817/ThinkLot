@@ -1,7 +1,7 @@
 <script lang="ts">
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { convex } from '$lib/convex/client.svelte';
-	import { watchQuery } from '$lib/convex/query.svelte';
+	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStatus } from '$lib/types';
@@ -11,6 +11,7 @@
 	let loaded = $state(false);
 	let problem = $state<string | null>(null);
 	let saving = $state(false);
+	let seeded = $state(false);
 
 	// Local edit buffer. Editing writes through on blur, not on every keystroke,
 	// so a half-typed title never reaches the server.
@@ -19,11 +20,21 @@
 	let problemText = $state('');
 	let tagDraft = $state('');
 
-	let handle = $state<ReturnType<typeof watchQuery<{ idea: Idea; tasks: unknown[] }>> | null>(null);
+	/**
+	 * Not `$state`, for the same reason as the list page: an effect that disposes
+	 * and recreates a handle it also tracks re-schedules itself until it dies.
+	 */
+	let handle = $state<QueryHandle<{ idea: Idea; tasks: unknown[] }> | null>(null);
 
 	// The idea itself is always derived straight from the subscription, so a
 	// realtime edit from another device shows up here immediately.
 	const idea = $derived(handle?.current?.idea ?? null);
+
+	// `loading` must come from the subscription, not from a local flag that
+	// waits on a truthy idea. `api.ideas.get` returns `{ idea: null }` for an id
+	// you do not own, so a truthiness check hung on "LOADING" forever instead of
+	// ever reaching the "not in your lot" branch.
+	const loading = $derived(handle?.loading ?? true);
 
 	$effect(() => {
 		convex.start();
@@ -31,22 +42,26 @@
 
 	$effect(() => {
 		const id = data.id;
-		handle?.dispose();
-		handle = watchQuery<{ idea: Idea; tasks: unknown[] }>(convex.client!, api.ideas.get, {
+		const next = watchQuery<{ idea: Idea; tasks: unknown[] }>(convex.client!, api.ideas.get, {
 			ideaId: id
 		});
-		return () => handle?.dispose();
+		// WRITE ONLY - see the note in (app)/ideas/+page.svelte about the
+		// read-then-write effect loop.
+		handle = next;
+		return () => {
+			next.dispose();
+		};
 	});
 
 	// Seed the buffer once, then leave it alone so typing is never clobbered by
 	// an incoming realtime update.
 	$effect(() => {
 		const incoming = handle?.current?.idea;
-		if (incoming && !loaded) {
+		if (incoming && !seeded) {
 			title = incoming.title;
 			description = incoming.description ?? '';
 			problemText = incoming.problem ?? '';
-			loaded = true;
+			seeded = true;
 		}
 	});
 
@@ -87,12 +102,20 @@
 
 	function commitText() {
 		if (!idea) return;
-		if (title.trim() === idea.title && description === (idea.description ?? '')) return;
+		// Every field has to participate in the dirty check. Comparing only title
+		// and description meant an edit to "Problem it solves" was silently
+		// discarded: blur fired, the early return fired, and the text reverted.
+		const unchanged =
+			title.trim() === idea.title &&
+			description === (idea.description ?? '') &&
+			problemText === (idea.problem ?? '');
+		if (unchanged) return;
+
 		void run(() =>
 			convex.mutation(api.ideas.update, {
 				ideaId: idea!._id,
-				title: title,
-				description: description,
+				title,
+				description,
 				problem: problemText
 			})
 		);
@@ -113,7 +136,7 @@
 		void run(() =>
 			convex.mutation(api.ideas.update, {
 				ideaId: idea._id,
-				tags: idea.tags.filter((t) => t !== tag)
+				tags: idea.tags.filter((t: string) => t !== tag)
 			})
 		);
 	}
@@ -157,14 +180,14 @@
 		← Back to the lot
 	</a>
 
-	{#if loaded && !idea}
+	{#if !loading && !idea}
 		<div class="mt-4 rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
 			<p class="font-mono text-sm text-ink-2">That idea is not in your lot.</p>
 			<p class="mx-auto mt-2 max-w-sm text-sm text-ink-3">
 				It may have been deleted, or it belongs to another account.
 			</p>
 		</div>
-	{:else if !idea}
+	{:else if loading || !idea}
 		<div class="mt-8 grid min-h-40 place-items-center">
 			<p class="font-mono text-xs tracking-widest text-ink-3">LOADING</p>
 		</div>

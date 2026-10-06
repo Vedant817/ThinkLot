@@ -2,7 +2,6 @@ import { onDestroy } from 'svelte';
 import type { BaseConvexClient } from 'convex/browser';
 import { getFunctionName } from 'convex/server';
 import type { ConvexArgs } from './client.svelte';
-import type { Value } from 'convex/values';
 
 /**
  * A reactive Convex query, without React.
@@ -13,9 +12,9 @@ import type { Value } from 'convex/values';
  *
  * The underlying mechanism is small and public, so this reimplements it:
  *
- *   client.subscribe(name, args as Record<string, Value>)          -> keeps a live server query open
+ *   client.subscribe(name, args)          -> keeps a live server query open
  *   client.addOnTransitionHandler(fn)    -> fires when that query's value changes
- *   client.localQueryResult(name, args as Record<string, Value>)   -> reads the current cached value
+ *   client.localQueryResult(name, args)   -> reads the current cached value
  *
  * Call it during component initialisation, the same place you would call
  * `useQuery`. It returns an object of getters.
@@ -23,8 +22,10 @@ import type { Value } from 'convex/values';
 export type QueryHandle<T> = {
 	/** Current value. `undefined` until the first result arrives. */
 	readonly current: T | undefined;
-	/** True until the first result arrives. */
+	/** True until the first result has arrived *successfully*. */
 	readonly loading: boolean;
+	/** Last error this subscription produced, or null. */
+	readonly error: string | null;
 	/** Release the subscription. Called automatically inside a component. */
 	dispose: () => void;
 };
@@ -35,15 +36,30 @@ export function watchQuery<T>(
 	args: ConvexArgs = {},
 	initial: T | undefined = undefined
 ): QueryHandle<T> {
-	const state = $state({ current: initial as T | undefined, loading: true });
+	const state = $state({ current: initial as T | undefined, loading: true, error: null as string | null });
 
 	const name = getFunctionName(reference as never);
 
-	const { queryToken, unsubscribe } = client.subscribe(name, args as Record<string, Value>);
+	const { queryToken, unsubscribe } = client.subscribe(name, args as Record<string, never>);
 
+	/**
+	 * Convex THROWS from `localQueryResult` when the cached result is an error, and
+	 * its `_transition` dispatches handlers in a bare loop with no try/catch. So an
+	 * unguarded read here escapes, aborts every *other* subscriber's handler for
+	 * that tick, and leaves this handle frozen at its last value with no message.
+	 *
+	 * Convex's own React bindings wrap this exact call; the port had to as well.
+	 */
 	const publish = () => {
-		state.current = client.localQueryResult(name, args as Record<string, Value>) as T | undefined;
-		state.loading = false;
+		try {
+			state.current = client.localQueryResult(name, args as Record<string, never>) as T | undefined;
+			state.loading = false;
+			state.error = null;
+		} catch (error) {
+			state.loading = false;
+			state.error = error instanceof Error ? error.message : String(error);
+			console.error(`ThinkLot: query ${name} failed.`, error);
+		}
 	};
 
 	const removeHandler = client.addOnTransitionHandler((transition) => {
@@ -78,6 +94,9 @@ export function watchQuery<T>(
 		},
 		get loading() {
 			return state.loading;
+		},
+		get error() {
+			return state.error;
 		},
 		dispose
 	};

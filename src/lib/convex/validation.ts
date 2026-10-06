@@ -85,10 +85,42 @@ export function normaliseScore(score: number | undefined | null, field: string) 
 }
 
 /**
- * Only advance a timestamp to a whole second. Convex timestamps are used for
- * expiry, snooze and the 7-day review rule; sub-millisecond precision there
- * just makes comparisons brittle.
+ * Milliseconds since the epoch, the unit every timestamp in this app uses.
+ *
+ * Named `nowMs` rather than `nowSeconds` on purpose. The previous name said
+ * "whole second" while returning `Date.now()`, and the consumers (7-day review
+ * rule, relative dates) correctly divide by 86_400_000. Anyone "fixing" the
+ * function to match its old name would silently break every date in the app.
  */
-export function nowSeconds() {
+export function nowMs() {
 	return Date.now();
+}
+
+/**
+ * `revisitAt` is the one numeric field that had no validation while all of its
+ * siblings were range-checked, so `revisitAt: -1e308`, `1e308` and `0.5` all
+ * persisted. The field is indexed by `by_user_revisit`, so junk in it poisons
+ * index scans as well as whatever reads it.
+ *
+ * Constrained to a whole millisecond timestamp inside a human-plausible window
+ * rather than merely "finite": `1e308` and `0.5` are both finite numbers, which
+ * is exactly the gap a finiteness check leaves open.
+ */
+const REVISIT_MIN = Date.UTC(2000, 0, 1);
+const REVISIT_MAX = Date.UTC(2100, 0, 1);
+
+export function normaliseRevisitAt(revisitAt: number | null | undefined): number | undefined {
+	if (revisitAt === undefined || revisitAt === null) return undefined;
+
+	if (typeof revisitAt !== 'number' || !Number.isFinite(revisitAt)) {
+		throw new ValidationError('Revisit date must be a real date.');
+	}
+	if (!Number.isInteger(revisitAt)) {
+		throw new ValidationError('Revisit date must be a whole timestamp.');
+	}
+	if (revisitAt < REVISIT_MIN || revisitAt > REVISIT_MAX) {
+		throw new ValidationError('Revisit date must be between 2000 and 2100.');
+	}
+
+	return revisitAt;
 }

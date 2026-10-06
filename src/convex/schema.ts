@@ -45,6 +45,24 @@ const score = v.optional(v.number());
 const schema = defineSchema({
 	...authTables,
 
+	/**
+	 * Monotonic per-user counters.
+	 *
+	 * `ideas.seq` used to be `max(existing seq) + 1`, which is not monotonic: delete
+	 * LOT-0003 and the next capture is handed LOT-0003 again. Since the plate is the
+	 * app's core conversational primitive ("that was LOT-0003"), two different ideas
+	 * sharing a label over time quietly breaks the thing users actually talk about.
+	 *
+	 * A dedicated counter row only ever increments, so plates are never reused.
+	 */
+	counters: defineTable({
+		userId: v.id('users'),
+		key: v.string(),
+		value: v.number()
+	})
+		// One counter row per (user, key); the uniqueness that matters.
+		.index('by_user_key', ['userId', 'key']),
+
 	ideas: defineTable({
 		userId: v.id('users'),
 

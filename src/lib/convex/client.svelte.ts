@@ -149,17 +149,46 @@ class ConvexContext {
 		this.connection = 'connecting';
 		this.client = new BaseConvexClient(this.url, () => {});
 
-		// Convex calls this whenever it needs a token. `forceRefreshToken` is set
-		// once the access token is close to expiry.
-		const fetchToken = async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
-			const { token, refreshToken } = readTokens();
+		this.client.setAuth(
+			(args) => this.fetchToken(args),
+			(isAuthenticated) => this.onAuthChanged(isAuthenticated)
+		);
 
-			if (!forceRefreshToken && token && !isExpired(token)) {
-				return token;
-			}
+		// `subscribeToConnectionState` registers a callback but never invokes it
+		// with the current state, so seed it or every page load flashes a false
+		// "Reconnecting..." until the socket happens to open.
+		this.applyConnectionState(this.client.connectionState());
+		this.client.subscribeToConnectionState((state) => this.applyConnectionState(state));
+	}
 
-			if (!refreshToken) return null;
+	/**
+	 * The token fetcher Convex calls whenever it needs a token.
+	 *
+	 * This MUST remain the only fetcher ever installed. Convex's
+	 * `AuthenticationManager.setConfig` *replaces* its config rather than
+	 * merging, so installing a simpler one after sign-in permanently disables
+	 * refresh. See `remember()`.
+	 *
+	 * The try/catch is load-bearing, not defensive padding: Convex pauses the
+	 * socket before awaiting this and resumes it afterwards without a `finally`,
+	 * so a rejection here strands the WebSocket permanently. Go offline in a
+	 * tunnel at the moment a refresh fires and the app stays "Reconnecting..."
+	 * until a manual reload, even once the network is back.
+	 */
+	private async fetchToken({
+		forceRefreshToken
+	}: {
+		forceRefreshToken: boolean;
+	}): Promise<string | null> {
+		const { token, refreshToken } = readTokens();
 
+		if (!forceRefreshToken && token && !isExpired(token)) {
+			return token;
+		}
+
+		if (!refreshToken) return null;
+
+		try {
 			const result = await this.action<{ tokens?: Tokens | null }>(api.auth.signIn, {
 				refreshToken
 			});
@@ -168,21 +197,42 @@ class ConvexContext {
 				return result.tokens.token;
 			}
 			return null;
-		};
+		} catch (error) {
+			console.warn('ThinkLot: token refresh failed; will retry on the next request.', error);
+			return null;
+		}
+	}
 
-		this.client.setAuth(fetchToken, (isAuthenticated) => {
-			if (!isAuthenticated) {
-				this.email = null;
-				this.auth = { status: 'unauthenticated', email: null };
-				return;
-			}
-			void this.refreshProfile();
-		});
+	/**
+	 * Single place auth transitions are handled, so the initial config and every
+	 * later re-auth observe the same rules.
+	 */
+	private onAuthChanged(isAuthenticated: boolean) {
+		if (!isAuthenticated) {
+			// This case used to be ignored, so when a session genuinely expired the
+			// app stayed `authenticated` forever: the shell rendered, the list froze
+			// at its last value, and every capture returned "You must be signed in."
+			this.email = null;
+			this.auth = { status: 'unauthenticated', email: null };
+			return;
+		}
+		void this.refreshProfile();
+	}
 
-		// Returns a disposer, not a promise - the callback is the only update path.
-		this.client.subscribeToConnectionState((state) => {
-			this.connection = state.isWebSocketConnected ? 'connected' : 'connecting';
-		});
+	private applyConnectionState(state: {
+		isWebSocketConnected: boolean;
+		hasEverConnected: boolean;
+	}) {
+		if (state.isWebSocketConnected) {
+			this.connection = 'connected';
+		} else if (state.hasEverConnected) {
+			// Was connected and then lost it. This is the only state where
+			// "Offline - ideas may not save" is actually true; before, that string
+			// was unreachable because the callback could only ever yield two values.
+			this.connection = 'disconnected';
+		} else {
+			this.connection = 'connecting';
+		}
 	}
 
 	/**
@@ -207,7 +257,12 @@ class ConvexContext {
 		try {
 			const result = await this.action<{ tokens?: Tokens | null }>(api.auth.signIn, {
 				provider: 'password',
-				params: { email: email.trim(), password }
+				// `flow` is REQUIRED. Without it Convex Auth rejects the call with
+				// "Missing `flow` param" and *no user can sign in at all*. The
+				// original omission here shipped a completely broken login path, and
+				// the e2e suite missed it because it only ever exercised a wrong
+				// password, never a successful one.
+				params: { email: email.trim(), password, flow: 'signIn' }
 			});
 			this.remember(result.tokens ?? null);
 		} catch (error) {
@@ -241,20 +296,33 @@ class ConvexContext {
 	}
 
 	/**
-	 * Store freshly issued tokens and force Convex to pull one immediately,
+	 * Store freshly issued tokens and tell Convex to pull one immediately,
 	 * otherwise the UI sits in its previous auth state until the next request.
+	 *
+	 * The fetcher handed to `setAuth` is deliberately `this.fetchToken` - the SAME
+	 * refreshing method `start()` installs, not a simpler inline one.
+	 *
+	 * The previous version passed `async () => readTokens().token ?? null`, which
+	 * ignores `forceRefreshToken`. Convex's `AuthenticationManager.setConfig`
+	 * *replaces* rather than merges its config, so every UI sign-in permanently
+	 * swapped in a fetcher that could only ever return the same token.
+	 * `@convex-dev/auth` issues access tokens valid for 1 hour, so roughly an hour
+	 * after signing in through the form the session silently died: no redirect,
+	 * the list frozen, and every capture returning "You must be signed in."
+	 * Only a reload recovered, because reload reinstalled the good fetcher.
 	 */
 	private remember(tokens: Tokens | null) {
 		writeTokens(tokens);
+
 		if (!tokens) {
+			this.email = null;
 			this.auth = { status: 'unauthenticated', email: null };
 			return;
 		}
+
 		this.client!.setAuth(
-			async () => readTokens().token ?? null,
-			(isAuthenticated) => {
-				if (isAuthenticated) void this.refreshProfile();
-			}
+			(args) => this.fetchToken(args),
+			(isAuthenticated) => this.onAuthChanged(isAuthenticated)
 		);
 	}
 
@@ -281,35 +349,59 @@ class ConvexContext {
 			const { queryToken, unsubscribe } = this.client!.subscribe(name, asWire(args));
 
 			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+
 			const finish = (value: T) => {
 				if (settled) return;
 				settled = true;
+				if (timer) clearTimeout(timer);
 				removeHandler();
 				unsubscribe();
 				resolve(value);
 			};
 
+			const fail = (error: Error) => {
+				if (settled) return;
+				settled = true;
+				if (timer) clearTimeout(timer);
+				removeHandler();
+				unsubscribe();
+				reject(error);
+			};
+
 			const removeHandler = this.client!.addOnTransitionHandler((transition) => {
 				if (!transition.queries.some((q) => q.token === queryToken)) return;
-				const value = this.client!.localQueryResult(name, asWire(args));
-				if (value !== undefined) finish(value as T);
+				try {
+					const value = this.client!.localQueryResult(name, asWire(args));
+					if (value !== undefined) finish(value as T);
+				} catch (error) {
+					// Convex THROWS when the cached result is an error. Convex's own
+					// `_transition` wraps this read in a try/catch; this port did not,
+					// so one errored query escaped and aborted every other subscriber's
+					// transition handler for that tick.
+					fail(readableError(error));
+				}
 			});
 
 			// A cached value may already be present from an earlier subscription.
-			const cached = this.client!.localQueryResult(name, asWire(args));
-			if (cached !== undefined) {
-				finish(cached as T);
+			// This read can throw synchronously, which previously escaped the
+			// Promise executor before `removeHandler` existed - leaking both the
+			// transition handler and the WebSocket subscription.
+			try {
+				const cached = this.client!.localQueryResult(name, asWire(args));
+				if (cached !== undefined) {
+					finish(cached as T);
+					return;
+				}
+			} catch (error) {
+				fail(readableError(error));
 				return;
 			}
 
 			// A query that legitimately returns `undefined` would otherwise hang
 			// here forever, so give up rather than leak the subscription.
-			setTimeout(() => {
-				if (settled) return;
-				settled = true;
-				removeHandler();
-				unsubscribe();
-				reject(new Error('ThinkLot did not respond. Check your connection.'));
+			timer = setTimeout(() => {
+				fail(new Error('ThinkLot did not respond. Check your connection.'));
 			}, 10_000);
 		});
 	}
