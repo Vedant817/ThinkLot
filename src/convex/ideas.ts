@@ -52,18 +52,38 @@ async function ownedIdea(ctx: QueryCtx, ideaId: Id<'ideas'>) {
  * same "highest idea" document, which under load exhausted the OCC retry budget
  * and dropped writes (measured: 7 of 48 concurrent captures returned HTTP 503).
  *
- * A dedicated counter row concentrates the contention but gives the retry loop a
- * single, tiny document to fight over, and plates are never reused.
+ * ## Why this does not use `.unique()`
+ *
+ * `counters` has an index but no uniqueness constraint. Two concurrent FIRST
+ * captures for a new user can both miss the "already exists" branch and both
+ * insert a row - an index range read does not conflict with a concurrent insert,
+ * so OCC does not reliably catch it. If this function then called `.unique()`,
+ * the duplicate would make it throw *permanently*, and that user could never
+ * capture an idea again. A silent permanent brick from a race is far worse than a
+ * duplicated counter row.
+ *
+ * So instead: read all rows for the key, keep the highest, delete the rest, and
+ * increment. That is self-healing - duplicates get folded back together on the
+ * next capture rather than poisoning the function forever.
  */
 async function nextSeq(ctx: MutationCtx, userId: Id<'users'>) {
-	const existing = await ctx.db
+	const rows = await ctx.db
 		.query('counters')
 		.withIndex('by_user_key', (q) => q.eq('userId', userId).eq('key', 'idea_seq'))
-		.unique();
+		.collect();
 
-	if (existing) {
-		const next = existing.value + 1;
-		await ctx.db.patch(existing._id, { value: next });
+	if (rows.length > 0) {
+		let keep = rows[0];
+		for (const row of rows) {
+			if (row.value > keep.value) keep = row;
+		}
+		// Consolidate any duplicates. Cheap, and only ever runs when there is
+		// something to consolidate.
+		for (const row of rows) {
+			if (row._id !== keep._id) await ctx.db.delete(row._id);
+		}
+		const next = keep.value + 1;
+		await ctx.db.patch(keep._id, { value: next });
 		return next;
 	}
 
@@ -122,6 +142,15 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 /** Hard ceiling on a single list response. See `toSummary` for why. */
 const LIST_LIMIT = 250;
 
+/**
+ * Hard ceiling on the scan backing `stats`.
+ *
+ * `stats` reads whole documents, description and transcript included, so an
+ * unbounded scan is a second route to the 16 MiB per-execution cliff that
+ * permanently bricked the app once already.
+ */
+const STATS_SCAN_LIMIT = 1000;
+
 export const list = query({
 	args: {
 		status: v.optional(
@@ -136,6 +165,16 @@ export const list = query({
 		),
 		includeArchived: v.optional(v.boolean()),
 		tags: v.optional(v.array(v.string())),
+		/**
+		 * Server-side text match over title, description and tags.
+		 *
+		 * This exists because the list caps at 250 rows while search previously ran
+		 * in the browser over those 250. Past the cap an older idea was not just
+		 * missing from a search result - it was unreachable, because the client had
+		 * no way to obtain its id to open or delete it. Searching must therefore
+		 * happen before the slice, not after it.
+		 */
+		search: v.optional(v.string()),
 		limit: v.optional(v.number())
 	},
 	handler: async (ctx, args) => {
@@ -159,6 +198,17 @@ export const list = query({
 		if (args.tags?.length) {
 			const wanted = new Set(args.tags.map((t) => t.toLowerCase()));
 			out = out.filter((idea) => idea.tags.some((t) => wanted.has(t)));
+		}
+
+		// Applied BEFORE the cap, so a search can reach ideas the cap would hide.
+		const needle = args.search?.trim().toLowerCase();
+		if (needle) {
+			out = out.filter(
+				(idea) =>
+					idea.title.toLowerCase().includes(needle) ||
+					(idea.description ?? '').toLowerCase().includes(needle) ||
+					idea.tags.some((t) => t.includes(needle))
+			);
 		}
 
 		out.sort((a, b) => b.seq - a.seq);
@@ -389,16 +439,20 @@ export const remove = mutation({
  * does not have to download every idea just to render three numbers.
  */
 export const stats = query({
+	// `stats` was the only function declared without an `args` validator, so unlike
+	// every sibling it silently accepted and ignored anything:
+	//   ideas:stats { "anything": "here", "__proto__": 1 }  ->  success
+	// Harmless today, but it removes the guard that rejects unknown fields
+	// everywhere else, which is a footgun the day a real arg is added here.
+	args: {},
 	handler: async (ctx) => {
 		const userId = await requireUser(ctx);
 		const ideas = await ctx.db
 			.query('ideas')
 			.withIndex('by_user', (q) => q.eq('userId', userId))
-			.collect();
+			.take(STATS_SCAN_LIMIT);
 
-		// .take bounds the scan. Without a cap this query reads every document
-		// including 20 KB descriptions, which is a second route to the 16 MiB cliff.
-	const active = ideas.filter((idea) => !idea.archived);
+		const active = ideas.filter((idea) => !idea.archived);
 
 		return {
 			total: ideas.length,

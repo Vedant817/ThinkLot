@@ -1,7 +1,7 @@
 import { getAuthUserId } from '@convex-dev/auth/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import { v } from 'convex/values';
-import { normaliseBody, nowMs } from '../lib/convex/validation';
+import { normaliseBody, normaliseRevisitAt, nowMs } from '../lib/convex/validation';
 
 /**
  * The weekly review queue.
@@ -31,16 +31,24 @@ const STRONG_SCORE = 24;
 /** How many to return. A review you cannot finish is a review you skip. */
 const QUEUE_LIMIT = 40;
 
+/** Hard ceiling on the scan backing the queue. See .take at the call site. */
+const QUEUE_SCAN_LIMIT = 500;
+
 export const queue = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new Error('You must be signed in.');
 
+		// Bounded scan. This reads whole documents, description and transcript
+		// included, so an unbounded `.collect()` is a second route to the 16 MiB
+		// per-execution cliff that previously bricked `ideas:list`. A user with more
+		// ideas than this gets the oldest portion of their lot reviewed and a
+		// truncation flag rather than an error page.
 		const ideas = await ctx.db
 			.query('ideas')
 			.withIndex('by_user', (q) => q.eq('userId', userId))
-			.collect();
+			.take(QUEUE_SCAN_LIMIT);
 
 		const now = nowMs();
 		const items: {
@@ -111,9 +119,9 @@ function priority(idea: { impact?: number; effort?: number; confidence?: number 
 /**
  * Put an idea aside and ask to be reminded.
  *
- * Public, because the client calls it. Ownership comes from the verified
- * request identity, never from an argument, so there is no way to snooze
- * somebody else's idea.
+ * Public, because the client calls it. Ownership comes from the verified request
+ * identity, never from an argument, so there is no way to snooze somebody else's
+ * idea.
  */
 export const snooze = mutation({
 	args: { ideaId: v.id('ideas'), days: v.number() },
@@ -126,19 +134,25 @@ export const snooze = mutation({
 			// Deliberately identical to the "no such idea" case.
 			throw new Error('That idea no longer exists.');
 		}
-		if (!Number.isFinite(args.days) || args.days <= 0 || args.days > 365) {
-			throw new Error('Snooze must be between 1 and 365 days.');
+		// Whole days only. `days: 0.5` was accepted and wrote a sub-day snooze,
+		// which is not something anyone means when they click "snooze". Rounding it
+		// silently would hide the mistake rather than refuse it, and this value is
+		// indexed - junk in it poisons index scans. Anything non-integral is
+		// rejected, and the resulting timestamp still goes through
+		// normaliseRevisitAt so this path cannot become a second way to write an
+		// out-of-range revisitAt if the day cap is ever widened.
+		if (!Number.isFinite(args.days) || !Number.isInteger(args.days) || args.days <= 0 || args.days > 365) {
+			throw new Error('Snooze must be a whole number of days between 1 and 365.');
 		}
 
-		await ctx.db.patch(args.ideaId, {
-			revisitAt: nowMs() + args.days * 24 * 60 * 60 * 1000,
-			updatedAt: nowMs()
-		});
+		const revisitAt = normaliseRevisitAt(nowMs() + args.days * 24 * 60 * 60 * 1000);
+
+		await ctx.db.patch(args.ideaId, { revisitAt, updatedAt: nowMs() });
 		await ctx.db.insert('ideaEvents', {
 			ideaId: args.ideaId,
 			userId,
 			kind: 'snoozed',
-			detail: `${Math.round(args.days)} days`,
+			detail: `${args.days} days`,
 			createdAt: nowMs()
 		});
 
@@ -163,26 +177,35 @@ export const remindDueSnoozes = internalMutation({
 	handler: async (ctx) => {
 		const now = nowMs();
 
-		// `by_user_revisit` is an index over `revisitAt`, so this is a bounded
-		// range scan rather than a full table walk.
+		// A single index range over `revisitAt`, which is exactly why `by_revisit`
+		// exists as a separate index from `by_user_revisit` - the latter leads with
+		// `userId` and so cannot answer "whose date has passed" at all.
+		//
+		// Bounded with `.take` because this is a daily cron: unbounded, it would be a
+		// full-table scan on a schedule nobody asked for.
+		// Convex 1.46's index range builder takes the field name as a plain string
+		// argument (`q.lte('revisitAt', now)`) - `q.field(...)` does not exist on it.
 		const due = await ctx.db
 			.query('ideas')
-			.withIndex('by_user_revisit')
-			.collect();
+			.withIndex('by_revisit', (q) => q.lte('revisitAt', now))
+			.take(200);
 
 		let reminded = 0;
 		for (const idea of due) {
 			if (idea.archived) continue;
 			if (idea.revisitAt === undefined || idea.revisitAt > now) continue;
 
-			const already = await ctx.db
+			// Bounded and filtered to just reminders. The previous version collected
+			// every event for the idea and filtered in JS - an N+1 that re-read a
+			// growing row set once per due idea, every single day.
+			const reminders = await ctx.db
 				.query('ideaEvents')
 				.withIndex('by_idea', (q) => q.eq('ideaId', idea._id))
-				.collect();
+				.filter((q) => q.eq(q.field('kind'), 'reminder'))
+				.order('desc')
+				.take(1);
 
-			const lastReminder = already
-				.filter((e) => e.kind === 'reminder')
-				.sort((a, b) => b.createdAt - a.createdAt)[0];
+			const lastReminder = reminders[0];
 
 			// Do not re-remind about the same date every day.
 			if (lastReminder && lastReminder.createdAt >= idea.revisitAt) continue;

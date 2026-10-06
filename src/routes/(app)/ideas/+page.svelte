@@ -8,6 +8,17 @@
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	let search = $state('');
+
+	/** Debounced copy of search, sent to the server. Typing must not re-query. */
+	let searchQuery = $state('');
+
+	(() => {
+		const value = search;
+		const timer = setTimeout(() => {
+			searchQuery = value;
+		}, 250);
+		return () => clearTimeout(timer);
+	});
 	let tagFilter = $state<string[]>([]);
 	let showArchived = $state(false);
 	let sortBy = $state<'capture' | 'priority'>('capture');
@@ -41,7 +52,7 @@
 		const nextList = watchQuery<{ ideas: Idea[]; truncated: boolean; total: number }>(
 			convex.client!,
 			api.ideas.list,
-			{ includeArchived }
+			{ includeArchived, search: searchQuery }
 		);
 		const nextStats = watchQuery<IdeaStats>(convex.client!, api.ideas.stats, {});
 		// WRITE ONLY. The original bug was an effect that both disposed and
@@ -72,21 +83,15 @@
 		Array.from(new Set(lot.flatMap((idea) => idea.tags))).sort((a, b) => a.localeCompare(b))
 	);
 
+	/**
+	 * Only the tag filter runs locally. Text search happens server-side BEFORE the
+	 * 250-row cap, because filtering the capped page client-side made any idea
+	 * older than the cap unsearchable - and therefore impossible to open or delete.
+	 */
 	const visible = $derived.by(() => {
-		const needle = search.trim().toLowerCase();
-
-		let rows = lot.filter((idea) =>
+		const rows = lot.filter((idea) =>
 			tagFilter.length === 0 ? true : tagFilter.every((t) => idea.tags.includes(t))
 		);
-
-		if (needle) {
-			rows = rows.filter(
-				(idea) =>
-					idea.title.toLowerCase().includes(needle) ||
-					(idea.preview ?? '').toLowerCase().includes(needle) ||
-					idea.tags.some((t) => t.includes(needle))
-			);
-		}
 
 		return sortBy === 'priority' ? [...rows].sort(byPriority) : rows;
 	});

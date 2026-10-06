@@ -225,6 +225,33 @@ Check "unscored inbox idea is flagged undecided" (($undecidedItem.reasons -join 
 
 Check "queue is ordered oldest-touched first" ($true)
 
+Write-Host "`n== 11b. Server-side search reaches past the row cap ==" -ForegroundColor Cyan
+# Search used to run in the browser over the capped page, so past 250 rows an
+# older idea was not merely absent from results - it was unopenable and
+# undeletable, because the client had no way to learn its id.
+$needle = "unmistakable-needle-9f2c"
+$sentinelId = (Call 'ideas:capture' (@{ title="old idea $needle" } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+
+$found = Call 'ideas:list' (@{ search = $needle } | ConvertTo-Json -Compress) $tokenA
+# `list` returns the raw Convex field name `_id`, not the `id` alias the review
+# queue uses. Comparing against `$_.id` silently matches nothing.
+Check "server-side search finds the idea" (@($found.value.ideas | Where-Object { $_._id -eq $sentinelId }).Count -eq 1) "status=$($found.status) err=$($found.errorMessage) rows=$(@($found.value.ideas).Count)"
+Check "server-side search returns it with the fields needed to open it" ($found.status -ne 'error' -and $found.value.ideas[0].seq -gt 0) "-> seq=$($found.value.ideas[0].seq)"
+Check "search matches the description too" (@((Call 'ideas:list' (@{ search='dictated' } | ConvertTo-Json -Compress) $tokenA).value.ideas).Count -ge 1)
+
+Write-Host "`n== 11c. stats rejects unexpected args ==" -ForegroundColor Cyan
+$extra = Call 'ideas:stats' '{"anything":"here"}' $tokenA
+Check "stats rejects an unexpected arg (consistent with every sibling)" (Refused $extra) "err=$($extra.errorMessage)"
+$plainStats = Call 'ideas:stats' '{}' $tokenA
+Check "stats with no args still works" (-not (Refused $plainStats)) "status=$($plainStats.status) err=$($plainStats.errorMessage)"
+
+Write-Host "`n== 11d. snooze cannot write an out-of-range revisitAt ==" -ForegroundColor Cyan
+$frac = Call 'review:snooze' (@{ ideaId=$sentinelId; days=0.5 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "snooze days=0.5 is rejected rather than writing a sub-day snooze" (Refused $frac) "status=$($frac.status) err=$($frac.errorMessage)"
+$snOk = Call 'review:snooze' (@{ ideaId=$sentinelId; days=30 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$snoozedIdea = (Call 'ideas:get' (@{ ideaId=$sentinelId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "a valid snooze writes a revisitAt inside the allowed window" ($snoozedIdea.revisitAt -gt 0 -and $snoozedIdea.revisitAt -lt 4102444800000) "-> revisitAt=$($snoozedIdea.revisitAt)"
+
 Write-Host "`n== 12. Snooze ==" -ForegroundColor Cyan
 $sn = Call 'review:snooze' (@{ ideaId=$parkedId; days=7 } | ConvertTo-Json -Compress) $tokenA 'mutation'
 Check "snooze for 7 days succeeds" (-not (Refused $sn)) "-> $($sn.errorMessage)"

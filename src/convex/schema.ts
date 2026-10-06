@@ -111,7 +111,14 @@ const schema = defineSchema({
 		.index('by_user_status', ['userId', 'status'])
 		.index('by_user_updated', ['userId', 'updatedAt'])
 		.index('by_user_seq', ['userId', 'seq'])
-		.index('by_user_revisit', ['userId', 'revisitAt']),
+		.index('by_user_revisit', ['userId', 'revisitAt'])
+		/**
+		 * `by_revisit` leads with `revisitAt` so the reminder cron can ask for
+		 * "every idea whose revisit date has passed" as a single index range.
+		 * `by_user_revisit` cannot do that job - it leads with `userId`, so it
+		 * groups by owner rather than by date.
+		 */
+		.index('by_revisit', ['revisitAt']),
 
 	ideaTasks: defineTable({
 		ideaId: v.id('ideas'),
