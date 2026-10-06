@@ -13,6 +13,10 @@
 		"noEmit": true,
 		"types": ["node"]
 	},
-	"include": ["./**/*.ts", "./_generated/**/*.ts", "../lib/convex/**/*.ts"],
+	"include": [
+		"./**/*.ts",
+		"./_generated/**/*.ts",
+		"../lib/convex/validation.ts"
+	],
 	"exclude": ["../node_modules"]
 }

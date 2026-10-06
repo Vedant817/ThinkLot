@@ -1,1 +1,168 @@
 @import 'tailwindcss';
+
+/*
+	ThinkLot — "utilitarian ledger"
+
+	A capture tool used in 30-second fragments while walking, working or studying.
+	It earns its keep by being fast, quiet and legible, so the surface is flat:
+	no gradients, no glow, no glass, no backdrop-blur. Structure is carried by
+	1px rules and spacing, not decoration.
+
+	One accent does one job. `--signal` is reserved for the primary action and
+	focus. `--lot` (parking-lot amber) is reserved for the LOT-#### plate and
+	priority score, the two places where a number has to jump out.
+*/
+
+@theme {
+	--font-sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Light — warm-neutral paper, not cream. Pure white would glare on a phone in
+   daylight; the small warm cast keeps long reading sessions comfortable.
+   --------------------------------------------------------------------------- */
+:root,
+[data-theme='light'] {
+	--paper: #ffffff;
+	--panel: #f6f6f4;
+	--sunk: #eeeeeb;
+	--rule: #e4e4de;
+	--rule-strong: #c9c9c2;
+
+	--ink: #141418;
+	--ink-2: #55554f;
+	--ink-3: #8b8b82;
+
+	--signal: #5b4bdb;
+	--signal-ink: #ffffff;
+	--signal-soft: #eeecfd;
+
+	--lot: #b26a00;
+	--lot-soft: #fdf1dc;
+
+	--ok: #0f6b45;
+	--ok-soft: #e4f5ec;
+	--warn: #8a5a00;
+	--warn-soft: #fdf1dc;
+	--bad: #a81f14;
+	--bad-soft: #fdeae8;
+
+	color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark — neutral, not blue-black. A capture tool is used at night as often as
+   it is used on a train in daylight, so the dark surface stays desaturated.
+   --------------------------------------------------------------------------- */
+[data-theme='dark'] {
+	--paper: #0e0e11;
+	--panel: #17171b;
+	--sunk: #121216;
+	--rule: #26262c;
+	--rule-strong: #3a3a42;
+
+	--ink: #f4f4f1;
+	--ink-2: #a8a8a2;
+	--ink-3: #74746e;
+
+	--signal: #8b7cf6;
+	--signal-ink: #14101f;
+	--signal-soft: #1e1a33;
+
+	--lot: #f0b429;
+	--lot-soft: #2b2010;
+
+	--ok: #46b981;
+	--ok-soft: #10241a;
+	--warn: #f0b429;
+	--warn-soft: #2b2010;
+	--bad: #f87171;
+	--bad-soft: #2c1614;
+
+	color-scheme: dark;
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-panel: var(--panel);
+	--color-sunk: var(--sunk);
+	--color-rule: var(--rule);
+	--color-rule-strong: var(--rule-strong);
+
+	--color-ink: var(--ink);
+	--color-ink-2: var(--ink-2);
+	--color-ink-3: var(--ink-3);
+
+	--color-signal: var(--signal);
+	--color-signal-ink: var(--signal-ink);
+	--color-signal-soft: var(--signal-soft);
+
+	--color-lot: var(--lot);
+	--color-lot-soft: var(--lot-soft);
+
+	--color-ok: var(--ok);
+	--color-ok-soft: var(--ok-soft);
+	--color-warn: var(--warn);
+	--color-warn-soft: var(--warn-soft);
+	--color-bad: var(--bad);
+	--color-bad-soft: var(--bad-soft);
+}
+
+@layer base {
+	html {
+		background: var(--paper);
+	}
+
+	body {
+		background: var(--paper);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+		/* Nothing here scrolls sideways, ever. */
+		overflow-x: hidden;
+	}
+
+	/*
+		Focus is the one piece of decoration this design spends money on. It is
+		the only thing a keyboard user can see, so it must be unmissable.
+	*/
+	:focus-visible {
+		outline: 2px solid var(--signal);
+		outline-offset: 2px;
+		border-radius: 2px;
+	}
+
+	::selection {
+		background: var(--signal);
+		color: var(--signal-ink);
+	}
+
+	/* Tabular numerals everywhere numbers are compared. */
+	.font-mono,
+	[data-numeric] {
+		font-variant-numeric: tabular-nums;
+	}
+}
+
+@layer utilities {
+	/* The signature element: a 1px-ruled row, the ledger's basic unit. */
+	.rule-y > * + * {
+		border-top: 1px solid var(--rule);
+	}
+}
+
+/* Respect the user's motion preference. The capture bar is the one place a
+   transition is genuinely informative (saving vs saved), and even that goes
+   away when the user has asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

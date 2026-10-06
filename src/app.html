@@ -1,13 +1,43 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="text-scale" content="scale" />
+		<!-- viewport-fit=cover so the mobile app can reach the safe area under a notch -->
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		/>
+		<meta name="color-scheme" content="light dark" />
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0e0e11" media="(prefers-color-scheme: dark)" />
+
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			rel="stylesheet"
+			href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+		/>
+
+		<script>
+			// Resolve the theme before first paint. Without this the app flashes
+			// light before a night-mode user ever sees the dark surface.
+			(function () {
+				try {
+					var stored = localStorage.getItem('thinklot:theme');
+					var prefersDark =
+						window.matchMedia('(prefers-color-scheme: dark)').matches;
+					document.documentElement.dataset.theme =
+						stored || (prefersDark ? 'dark' : 'light');
+				} catch (e) {
+					/* storage blocked - the light default is fine */
+				}
+			})();
+		</script>
+
 		%sveltekit.head%
 	</head>
-	<body data-sveltekit-preload-data="hover" class="bg-[#191919] text-orange-500">
+	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>
