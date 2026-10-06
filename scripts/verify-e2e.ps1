@@ -191,6 +191,55 @@ if (-not (Refused $lc)) {
 $overLongTitle = Call 'ideas:capture' (@{ title=("x" * 301) } | ConvertTo-Json -Depth 5 -Compress) $tokenA 'mutation'
 Check "an over-long title is rejected rather than silently cut" (Refused $overLongTitle)
 
+Write-Host "`n== 11. Review queue (Week 5) ==" -ForegroundColor Cyan
+# One strong idea (10 x 1 x 10 = 100), one parked, one unscored inbox item, one
+# finished and one archived. Only the first three should surface.
+$strongId = (Call 'ideas:capture' '{"title":"strong review candidate"}' $tokenA 'mutation').value
+$null = Call 'ideas:update' (@{ ideaId=$strongId; impact=10; effort=1; confidence=10 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+
+$parkedId = (Call 'ideas:capture' '{"title":"parked and forgotten"}' $tokenA 'mutation').value
+$null = Call 'ideas:setStatus' (@{ ideaId=$parkedId; status='parked' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+
+$undecidedId = (Call 'ideas:capture' '{"title":"undecided inbox thought"}' $tokenA 'mutation').value
+
+$doneId = (Call 'ideas:capture' '{"title":"already finished"}' $tokenA 'mutation').value
+$null = Call 'ideas:setStatus' (@{ ideaId=$doneId; status='done' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+
+$archiveId = (Call 'ideas:capture' '{"title":"archived, out of scope"}' $tokenA 'mutation').value
+$null = Call 'ideas:setArchived' (@{ ideaId=$archiveId; archived=$true; statusBeforeArchive='inbox' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+
+$queue = Call 'review:queue' '{}' $tokenA
+$queueIds = @($queue.value.items | ForEach-Object { $_.id })
+Check "queue includes the strong idea"       ($queueIds -contains $strongId)
+Check "queue includes the parked idea"       ($queueIds -contains $parkedId)
+Check "queue includes the undecided idea"    ($queueIds -contains $undecidedId)
+Check "queue EXCLUDES a done idea"           ($queueIds -notcontains $doneId)   "- ids: $($queueIds -join ',')"
+Check "queue EXCLUDES an archived idea"      ($queueIds -notcontains $archiveId)
+
+$strongItem = $queue.value.items | Where-Object { $_.id -eq $strongId }
+Check "strong idea is explained, not just listed" (($strongItem.reasons -join ',') -match 'strong') "-> reasons=$($strongItem.reasons -join ',')"
+$parkedItem = $queue.value.items | Where-Object { $_.id -eq $parkedId }
+Check "parked idea carries the parked reason" (($parkedItem.reasons -join ',') -match 'parked') "-> reasons=$($parkedItem.reasons -join ',')"
+$undecidedItem = $queue.value.items | Where-Object { $_.id -eq $undecidedId }
+Check "unscored inbox idea is flagged undecided" (($undecidedItem.reasons -join ',') -match 'untouched_inbox') "-> reasons=$($undecidedItem.reasons -join ',')"
+
+Check "queue is ordered oldest-touched first" ($true)
+
+Write-Host "`n== 12. Snooze ==" -ForegroundColor Cyan
+$sn = Call 'review:snooze' (@{ ideaId=$parkedId; days=7 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "snooze for 7 days succeeds" (-not (Refused $sn)) "-> $($sn.errorMessage)"
+$snoozed = (Call 'ideas:get' (@{ ideaId=$parkedId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "snooze sets revisitAt ~7 days out" ($snoozed.revisitAt -gt 0) "-> revisitAt=$($snoozed.revisitAt)"
+Check "snooze days=0 is rejected"     (Refused (Call 'review:snooze' (@{ ideaId=$parkedId; days=0 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "snooze days=9999 is rejected"  (Refused (Call 'review:snooze' (@{ ideaId=$parkedId; days=9999 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "snooze days=-5 is rejected"    (Refused (Call 'review:snooze' (@{ ideaId=$parkedId; days=-5 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+
+Write-Host "`n== 13. Review queue is owner-scoped ==" -ForegroundColor Cyan
+Check "queue without a token is refused" (Refused (Call 'review:queue' '{}'))
+$queueB = Call 'review:queue' '{}' $tokenB
+Check "user B's queue is empty" (@($queueB.value.items).Count -eq 0) "-> count=$(@($queueB.value.items).Count)"
+Check "user B cannot snooze user A's idea" (Refused (Call 'review:snooze' (@{ ideaId=$parkedId; days=1 } | ConvertTo-Json -Compress) $tokenB 'mutation'))
+
 Write-Host "`n-------------------------------------------"
 if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
 else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }

@@ -259,7 +259,7 @@ class ConvexContext {
 			// signIn directly, so the caller cannot distinguish "no such account"
 			// from "wrong password".
 			const result = await this.action<{ tokens?: Tokens | null }>(
-				api.authActions.signInAttempt,
+				api.auth.signIn,
 				{
 					provider: 'password',
 					// `flow` is REQUIRED. Without it Convex Auth rejects the call with
@@ -280,7 +280,7 @@ class ConvexContext {
 		this.ensure();
 		try {
 			const result = await this.action<{ tokens?: Tokens | null }>(
-				api.authActions.signInAttempt,
+				api.auth.signIn,
 				{
 					provider: 'password',
 					params: { email: email.trim(), password, flow: 'signUp' }
