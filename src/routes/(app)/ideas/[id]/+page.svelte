@@ -1,0 +1,379 @@
+<script lang="ts">
+	import StatusPill from '$lib/components/StatusPill.svelte';
+	import { convex } from '$lib/convex/client.svelte';
+	import { watchQuery } from '$lib/convex/query.svelte';
+	import { api } from '../../../../convex/_generated/api';
+	import { displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
+	import { IDEA_STATUSES, type Idea, type IdeaStatus } from '$lib/types';
+
+	let { data } = $props();
+
+	let loaded = $state(false);
+	let problem = $state<string | null>(null);
+	let saving = $state(false);
+
+	// Local edit buffer. Editing writes through on blur, not on every keystroke,
+	// so a half-typed title never reaches the server.
+	let title = $state('');
+	let description = $state('');
+	let problemText = $state('');
+	let tagDraft = $state('');
+
+	let handle = $state<ReturnType<typeof watchQuery<{ idea: Idea; tasks: unknown[] }>> | null>(null);
+
+	// The idea itself is always derived straight from the subscription, so a
+	// realtime edit from another device shows up here immediately.
+	const idea = $derived(handle?.current?.idea ?? null);
+
+	$effect(() => {
+		convex.start();
+	});
+
+	$effect(() => {
+		const id = data.id;
+		handle?.dispose();
+		handle = watchQuery<{ idea: Idea; tasks: unknown[] }>(convex.client!, api.ideas.get, {
+			ideaId: id
+		});
+		return () => handle?.dispose();
+	});
+
+	// Seed the buffer once, then leave it alone so typing is never clobbered by
+	// an incoming realtime update.
+	$effect(() => {
+		const incoming = handle?.current?.idea;
+		if (incoming && !loaded) {
+			title = incoming.title;
+			description = incoming.description ?? '';
+			problemText = incoming.problem ?? '';
+			loaded = true;
+		}
+	});
+
+	const score = $derived(idea ? priorityScore(idea) : null);
+	const band = $derived(scoreBand(score));
+
+	/**
+	 * Declared as objects rather than tuples so the template gets `field` as a
+	 * literal union. A `[['impact','Impact',idea.impact]]` array infers as
+	 * `(string | number | undefined)[]` and silently widens away the types.
+	 */
+	type ScoreField = 'impact' | 'confidence' | 'effort';
+
+	const SCORE_FIELDS: { field: ScoreField; label: string; hint: string }[] = [
+		{ field: 'impact', label: 'Impact', hint: 'How much does this matter if it ships?' },
+		{ field: 'confidence', label: 'Confidence', hint: 'How sure are you it is worth doing?' },
+		{ field: 'effort', label: 'Effort', hint: 'How much work is it? This is in the denominator.' }
+	];
+
+	const BAND_BAR: Record<string, string> = {
+		unscored: 'bg-rule',
+		low: 'bg-ink-3',
+		solid: 'bg-lot',
+		strong: 'bg-signal'
+	};
+
+	async function run(fn: () => Promise<unknown>) {
+		saving = true;
+		problem = null;
+		try {
+			await fn();
+		} catch (error) {
+			problem = error instanceof Error ? error.message : 'Could not save.';
+		} finally {
+			saving = false;
+		}
+	}
+
+	function commitText() {
+		if (!idea) return;
+		if (title.trim() === idea.title && description === (idea.description ?? '')) return;
+		void run(() =>
+			convex.mutation(api.ideas.update, {
+				ideaId: idea!._id,
+				title: title,
+				description: description,
+				problem: problemText
+			})
+		);
+	}
+
+	function addTag() {
+		const tag = tagDraft.trim().toLowerCase();
+		if (!idea || !tag) return;
+		if (idea.tags.includes(tag)) { tagDraft = ''; return; }
+		void run(() =>
+			convex.mutation(api.ideas.update, { ideaId: idea!._id, tags: [...idea!.tags, tag] })
+		);
+		tagDraft = '';
+	}
+
+	function removeTag(tag: string) {
+		if (!idea) return;
+		void run(() =>
+			convex.mutation(api.ideas.update, {
+				ideaId: idea._id,
+				tags: idea.tags.filter((t) => t !== tag)
+			})
+		);
+	}
+
+	function setScore(field: ScoreField, value: number | undefined) {
+		if (!idea) return;
+		void run(() => convex.mutation(api.ideas.update, { ideaId: idea!._id, [field]: value }));
+	}
+
+	function setStatus(status: IdeaStatus) {
+		if (!idea) return;
+		void run(() => convex.mutation(api.ideas.setStatus, { ideaId: idea._id, status }));
+	}
+
+	async function destroy() {
+		if (!idea) return;
+		const ok = confirm(`Delete ${idea.title}? This cannot be undone.`);
+		if (!ok) return;
+		await run(async () => {
+			await convex.mutation(api.ideas.remove, { ideaId: idea!._id });
+			history.back();
+		});
+	}
+
+	function onTagKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter' || event.key === ',') {
+			event.preventDefault();
+			addTag();
+		} else if (event.key === 'Backspace' && !tagDraft && idea?.tags.length) {
+			removeTag(idea.tags[idea.tags.length - 1]);
+		}
+	}
+</script>
+
+<svelte:head>
+	<title>{idea ? `${idea.title} | ThinkLot` : 'Idea | ThinkLot'}</title>
+</svelte:head>
+
+<div class="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
+	<a href="/ideas" class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink">
+		← Back to the lot
+	</a>
+
+	{#if loaded && !idea}
+		<div class="mt-4 rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
+			<p class="font-mono text-sm text-ink-2">That idea is not in your lot.</p>
+			<p class="mx-auto mt-2 max-w-sm text-sm text-ink-3">
+				It may have been deleted, or it belongs to another account.
+			</p>
+		</div>
+	{:else if !idea}
+		<div class="mt-8 grid min-h-40 place-items-center">
+			<p class="font-mono text-xs tracking-widest text-ink-3">LOADING</p>
+		</div>
+	{:else}
+		{@const plate = lotPlate(idea.seq)}
+		<div class="mt-4 grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+			<!-- Left: the idea itself -->
+			<section class="min-w-0">
+				<div class="flex items-center gap-3">
+					<span class="font-mono text-xs font-bold tracking-wider text-lot">{plate}</span>
+					<StatusPill status={idea.status} size="md" />
+					{#if idea.source === 'dictated'}
+						<span
+							class="rounded border border-lot/30 bg-lot-soft px-1.5 font-mono text-[10px] tracking-wider text-lot uppercase"
+						>
+							voice
+						</span>
+					{/if}
+					{#if idea.archived}
+						<span class="font-mono text-[10px] tracking-wider text-ink-3 uppercase">archived</span>
+					{/if}
+				</div>
+
+				<label class="mt-4 block">
+					<span class="sr-only">Title</span>
+					<textarea
+						bind:value={title}
+						onblur={commitText}
+						rows="2"
+						class="w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 -ml-2 text-2xl leading-8 font-semibold text-ink outline-none hover:border-rule focus:border-signal focus:bg-paper"
+					></textarea>
+				</label>
+
+				<label class="mt-4 block">
+					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Notes</span>
+					<textarea
+						bind:value={description}
+						onblur={commitText}
+						rows="5"
+						placeholder="What is actually true about this?"
+						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
+					></textarea>
+				</label>
+
+				<label class="mt-4 block">
+					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Problem it solves</span>
+					<textarea
+						bind:value={problemText}
+						onblur={commitText}
+						rows="2"
+						placeholder="Who has this problem, and how do they cope today?"
+						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
+					></textarea>
+				</label>
+
+				<!-- Tags -->
+				<div class="mt-5">
+					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Tags</span>
+					<div
+						class="mt-1.5 flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-rule bg-panel px-2 py-1.5 focus-within:border-signal focus-within:bg-paper"
+					>
+						{#each idea.tags as tag (tag)}
+							<span
+								class="inline-flex items-center gap-1 rounded border border-rule-strong bg-paper px-1.5 py-0.5 font-mono text-[11px] text-ink-2"
+							>
+								{tag}
+								<button
+									type="button"
+									onclick={() => removeTag(tag)}
+									aria-label={`Remove tag ${tag}`}
+									class="text-ink-3 hover:text-bad"
+								>
+									×
+								</button>
+							</span>
+						{/each}
+						<input
+							bind:value={tagDraft}
+							onkeydown={onTagKeydown}
+							onblur={addTag}
+							placeholder={idea.tags.length ? 'Add…' : 'mobile, cheap, revisit…'}
+							aria-label="Add a tag"
+							class="min-w-32 flex-1 bg-transparent px-1 py-0.5 text-sm text-ink outline-none placeholder:text-ink-3"
+						/>
+					</div>
+					<p class="mt-1 font-mono text-[11px] text-ink-3">Enter or comma to add · Backspace removes the last</p>
+				</div>
+
+				{#if idea.transcript}
+					<details class="mt-5 rounded-md border border-rule bg-sunk">
+						<summary class="cursor-pointer px-3 py-2 font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Original dictation
+						</summary>
+						<p class="border-t border-rule px-3 py-2.5 text-sm leading-6 text-ink-2">
+							{idea.transcript}
+						</p>
+					</details>
+				{/if}
+			</section>
+
+			<!-- Right: the judgement -->
+			<aside class="lg:sticky lg:top-24 lg:self-start">
+				<div class="rounded-lg border border-rule bg-paper p-4">
+					<div class="flex items-baseline justify-between">
+						<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Priority</span>
+						<span
+							class="font-mono text-2xl font-bold"
+							class:text-signal={score !== null}
+							class:text-ink-3={score === null}
+							data-numeric="true"
+						>
+							{displayScore(score)}
+						</span>
+					</div>
+					<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
+						<div
+							class="h-full rounded-full transition-all {BAND_BAR[band]}"
+							style={`width:${score === null ? 0 : Math.min(100, (score / 40) * 100)}%`}
+						></div>
+					</div>
+					<p class="mt-2 font-mono text-[11px] text-ink-3">(impact × confidence) ÷ effort</p>
+
+					<div class="mt-5 space-y-4">
+						{#each SCORE_FIELDS as { field, label, hint } (field)}
+							{@const value = idea[field]}
+							<div>
+								<div class="flex items-center justify-between">
+									<label for={field} class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+										{label}
+									</label>
+									<span class="font-mono text-xs text-ink" data-numeric="true">
+										{value ?? '--'}
+									</span>
+								</div>
+								<input
+									id={field}
+									type="range"
+									min="1"
+									max="10"
+									step="1"
+									title={hint}
+									value={value ?? 0}
+									onchange={(e) => {
+										const n = Number(e.currentTarget.value);
+										setScore(field, n === 0 ? undefined : n);
+									}}
+									class="mt-1.5 w-full accent-signal"
+								/>
+							</div>
+						{/each}
+					</div>
+				</div>
+
+				<div class="mt-4 rounded-lg border border-rule bg-paper p-4">
+					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Stage</span>
+					<div class="mt-2 flex flex-col gap-1">
+						{#each IDEA_STATUSES as stage (stage)}
+							<button
+								type="button"
+								onclick={() => setStatus(stage)}
+								aria-pressed={idea.status === stage}
+								class="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors"
+								class:bg-sunk={idea.status === stage}
+								class:text-ink={idea.status === stage}
+								class:text-ink-3={idea.status !== stage}
+							>
+								<span
+									class="size-1.5 rounded-full"
+									class:bg-signal={idea.status === stage}
+									class:bg-rule-strong={idea.status !== stage}
+									aria-hidden="true"
+								></span>
+								{stage}
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<div class="mt-4 flex flex-col gap-2">
+					<button
+						type="button"
+						onclick={() => {
+							if (!idea) return;
+							void run(() =>
+								convex.mutation(api.ideas.toggleFavorite, { ideaId: idea!._id })
+							);
+						}}
+						class="rounded-md border border-rule-strong px-3 py-2 text-sm text-ink transition-colors hover:bg-sunk"
+					>
+						{idea.favorite ? 'Remove star' : 'Star this idea'}
+					</button>
+					<button
+						type="button"
+						onclick={destroy}
+						class="rounded-md border border-bad/30 px-3 py-2 text-sm text-bad transition-colors hover:bg-bad-soft"
+					>
+						Delete permanently
+					</button>
+				</div>
+
+				{#if problem}
+					<p class="mt-3 rounded-md border border-bad/25 bg-bad-soft px-3 py-2 text-sm text-bad" role="alert">
+						{problem}
+					</p>
+				{/if}
+				{#if saving}
+					<p class="mt-3 font-mono text-[11px] tracking-wider text-ink-3 uppercase">Saving…</p>
+				{/if}
+			</aside>
+		</div>
+	{/if}
+</div>

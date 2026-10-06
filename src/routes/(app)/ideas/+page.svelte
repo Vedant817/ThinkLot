@@ -235,7 +235,17 @@
 
 					<div class="min-w-0 flex-1">
 						<div class="flex flex-wrap items-center gap-2">
-							<p class="text-[15px] leading-6 font-medium text-ink">{idea.title}</p>
+							<!--
+								The whole row is the link, but only the title is an anchor.
+								Wrapping the row in an <a> would nest the star/archive buttons
+								inside a link, which is both invalid and unusable on a phone.
+							-->
+							<a
+								href={`/ideas/${idea._id}`}
+								class="text-[15px] leading-6 font-medium text-ink underline-offset-4 hover:underline"
+							>
+								{idea.title}
+							</a>
 							{#if idea.source === 'dictated'}
 								<span
 									class="rounded border border-lot/30 bg-lot-soft px-1 font-mono text-[9px] tracking-wider text-lot uppercase"
