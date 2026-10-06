@@ -9,7 +9,9 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"module": "NodeNext",
-		"moduleResolution": "NodeNext"
-	}
+		// SvelteKit/Vite own the build. Emitting .js next to the sources here
+		// duplicates the Convex bundler's output and breaks `convex codegen`.
+		"noEmit": true
+	},
+	"exclude": ["src/convex"]
 }
