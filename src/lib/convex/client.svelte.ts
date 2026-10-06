@@ -255,15 +255,21 @@ class ConvexContext {
 	async signIn(email: string, password: string) {
 		this.ensure();
 		try {
-			const result = await this.action<{ tokens?: Tokens | null }>(api.auth.signIn, {
-				provider: 'password',
-				// `flow` is REQUIRED. Without it Convex Auth rejects the call with
-				// "Missing `flow` param" and *no user can sign in at all*. The
-				// original omission here shipped a completely broken login path, and
-				// the e2e suite missed it because it only ever exercised a wrong
-				// password, never a successful one.
-				params: { email: email.trim(), password, flow: 'signIn' }
-			});
+			// Routed through authActions.signInAttempt rather than the library's
+			// signIn directly, so the caller cannot distinguish "no such account"
+			// from "wrong password".
+			const result = await this.action<{ tokens?: Tokens | null }>(
+				api.authActions.signInAttempt,
+				{
+					provider: 'password',
+					// `flow` is REQUIRED. Without it Convex Auth rejects the call with
+					// "Missing `flow` param" and *no user can sign in at all*. The
+					// original omission here shipped a completely broken login path, and
+					// the e2e suite missed it because it only ever exercised a wrong
+					// password, never a successful one.
+					params: { email: email.trim(), password, flow: 'signIn' }
+				}
+			);
 			this.remember(result.tokens ?? null);
 		} catch (error) {
 			throw readableError(error);
@@ -273,10 +279,13 @@ class ConvexContext {
 	async signUp(email: string, password: string) {
 		this.ensure();
 		try {
-			const result = await this.action<{ tokens?: Tokens | null }>(api.auth.signIn, {
-				provider: 'password',
-				params: { email: email.trim(), password, flow: 'signUp' }
-			});
+			const result = await this.action<{ tokens?: Tokens | null }>(
+				api.authActions.signInAttempt,
+				{
+					provider: 'password',
+					params: { email: email.trim(), password, flow: 'signUp' }
+				}
+			);
 			this.remember(result.tokens ?? null);
 		} catch (error) {
 			throw readableError(error);

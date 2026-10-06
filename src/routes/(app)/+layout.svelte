@@ -67,7 +67,7 @@
 	 */
 	const NAV = [
 		{ href: '/ideas', label: 'Lot', soon: false },
-		{ href: '/board', label: 'Board', soon: true },
+		{ href: '/board', label: 'Board', soon: false },
 		{ href: '/review', label: 'Review', soon: true },
 		{ href: '/archive', label: 'Archive', soon: false }
 	];
