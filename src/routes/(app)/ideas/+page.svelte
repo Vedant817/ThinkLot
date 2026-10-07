@@ -311,14 +311,20 @@
 		<!-- An empty state here would be a lie: the list is empty because the
 		     query failed, not because the user has no ideas. -->
 	{:else if visible.length === 0}
+		<!--
+			"Nothing parked yet" and "nothing matches these filters" are different
+			facts. Collapsing them told someone with 400 ideas that they had none,
+			simply because their search did not hit.
+		-->
+		{@const filtering = searchQuery.trim().length > 0 || tagFilter.length > 0}
 		<div class="rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
 			<p class="font-mono text-sm text-ink-2">
-				{lot.length === 0 ? 'Nothing parked yet.' : 'Nothing matches those filters.'}
+				{filtering ? 'Nothing matches those filters.' : 'Nothing parked yet.'}
 			</p>
 			<p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-3">
-				{lot.length === 0
-					? 'Use the bar above. Half a sentence is enough — you can make it useful later.'
-					: 'Clear the search or pick fewer tags.'}
+				{filtering
+					? 'Search covers titles, notes and tags. Clear it or pick fewer tags.'
+					: 'Use the bar above. Half a sentence is enough — you can make it useful later.'}
 			</p>
 		</div>
 	{:else}

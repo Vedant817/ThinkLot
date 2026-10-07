@@ -11,8 +11,6 @@
 
 	let loaded = $state(false);
 	let problem = $state<string | null>(null);
-	let saving = $state(false);
-	let seeded = $state(false);
 
 	// Local edit buffer. Editing writes through on blur, not on every keystroke,
 	// so a half-typed title never reaches the server.
@@ -98,57 +96,79 @@
 		strong: 'bg-signal'
 	};
 
+	/**
+	 * A COUNTER, not a boolean.
+	 *
+	 * With a single boolean, blurring the title and then the notes within 150ms
+	 * meant the first `run` to resolve set `saving = false` while the second was
+	 * still in flight, so "Saving…" vanished while a write was still outstanding.
+	 * That mattered because the next write would arrive with no indication that
+	 * one was pending.
+	 */
+	let inFlight = 0;
+
 	async function run(fn: () => Promise<unknown>) {
-		saving = true;
+		inFlight++;
 		problem = null;
 		try {
 			await fn();
 		} catch (error) {
 			problem = error instanceof Error ? error.message : 'Could not save.';
 		} finally {
-			saving = false;
+			inFlight--;
 		}
 	}
 
-	function commitText() {
+	const saving = $derived(inFlight > 0);
+
+	/**
+	 * Write back ONE field, the one that just lost focus.
+	 *
+	 * This used to send title + description + problem together. Two overlapping
+	 * commits were therefore two full three-field patches, and out-of-order
+	 * execution could silently drop whichever edit landed first - the classic
+	 * last-write-wins data loss.
+	 */
+	type TextField = 'title' | 'description' | 'problem';
+
+	function commitText(field: TextField) {
 		if (!idea) return;
-		// Every field has to participate in the dirty check. Comparing only title
-		// and description meant an edit to "Problem it solves" was silently
-		// discarded: blur fired, the early return fired, and the text reverted.
-		const unchanged =
-			title.trim() === idea.title &&
-			description === (idea.description ?? '') &&
-			problemText === (idea.problem ?? '');
-		if (unchanged) return;
+
+		const serverValue =
+			field === 'title'
+				? idea.title
+				: field === 'description'
+					? (idea.description ?? '')
+					: (idea.problem ?? '');
+		const bufferValue = field === 'title' ? title.trim() : field === 'description' ? description : problemText;
+
+		// Only the blurred field is compared, so editing "Problem it solves" is
+		// never discarded by an early return that looked only at title/description.
+		if (bufferValue === serverValue) return;
 
 		void run(() =>
-			convex.mutation(api.ideas.update, {
-				ideaId: idea!._id,
-				title,
-				description,
-				problem: problemText
-			})
+			convex.mutation(api.ideas.update, { ideaId: idea!._id, [field]: bufferValue })
 		);
 	}
 
 	function addTag() {
 		const tag = tagDraft.trim().toLowerCase();
 		if (!idea || !tag) return;
-		if (idea.tags.includes(tag)) { tagDraft = ''; return; }
-		void run(() =>
-			convex.mutation(api.ideas.update, { ideaId: idea!._id, tags: [...idea!.tags, tag] })
-		);
+		if (idea.tags.includes(tag)) {
+			tagDraft = '';
+			return;
+		}
+		// `addTag`, not a whole new array. Sending `[...idea.tags, tag]` built from
+		// a possibly-stale copy was how a tag got silently lost: clicking a tag's
+		// `x` blurs this input first, so the add and the remove were both computed
+		// from the same stale `idea` and the second overwrote the first.
+		void run(() => convex.mutation(api.ideas.update, { ideaId: idea!._id, addTag: tag }));
 		tagDraft = '';
 	}
 
 	function removeTag(tag: string) {
 		if (!idea) return;
-		void run(() =>
-			convex.mutation(api.ideas.update, {
-				ideaId: idea._id,
-				tags: idea.tags.filter((t: string) => t !== tag)
-			})
-		);
+		void run(() => convex.mutation(api.ideas.update, { ideaId: idea!._id, removeTag: tag }));
 	}
 
 	function setScore(field: ScoreField, value: number | null | undefined) {
@@ -229,7 +249,7 @@
 					<span class="sr-only">Title</span>
 					<textarea
 						bind:value={title}
-						onblur={commitText}
+						onblur={() => commitText('title')}
 						rows="2"
 						class="w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 -ml-2 text-2xl leading-8 font-semibold text-ink outline-none hover:border-rule focus:border-signal focus:bg-paper"
 					></textarea>
@@ -239,7 +259,7 @@
 					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Notes</span>
 					<textarea
 						bind:value={description}
-						onblur={commitText}
+						onblur={() => commitText('description')}
 						rows="5"
 						placeholder="What is actually true about this?"
 						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
@@ -250,7 +270,7 @@
 					<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Problem it solves</span>
 					<textarea
 						bind:value={problemText}
-						onblur={commitText}
+						onblur={() => commitText('problem')}
 						rows="2"
 						placeholder="Who has this problem, and how do they cope today?"
 						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"

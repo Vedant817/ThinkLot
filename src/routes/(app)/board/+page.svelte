@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CaptureBar from '$lib/components/CaptureBar.svelte';
+	import QueryError from '$lib/components/QueryError.svelte';
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../convex/_generated/api';
@@ -39,6 +40,8 @@
 	});
 
 	const total = $derived(handle?.current?.total ?? 0);
+	const truncated = $derived(handle?.current?.truncated ?? false);
+	const loaded = $derived(handle?.current?.ideas.length ?? 0);
 
 	async function move(idea: Idea, status: IdeaStatus) {
 		if (idea.status === status) return;
@@ -91,6 +94,19 @@
 		Drag a card, or use the move menu on it. Both do the same thing - the menu is
 		how you do this from a keyboard or a phone.
 	</p>
+
+	<QueryError handle={handle} what="The board" />
+
+	<!--
+		The board bound `truncated` and then never read it, so past 250 ideas it
+		showed a silently partial view with no indication at all. `/ideas` and
+		`/review` both say so; this now does too.
+	-->
+	{#if truncated}
+		<p class="mb-3 rounded-md border border-warn/25 bg-warn-soft px-3 py-2 font-mono text-[11px] tracking-wide text-warn">
+			Showing {loaded} of {total}. Older ideas need search on the lot.
+		</p>
+	{/if}
 
 	{#if problem}
 		<p class="mb-3 rounded-md border border-bad/25 bg-bad-soft px-3 py-2 text-sm text-bad" role="alert">

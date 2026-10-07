@@ -1,4 +1,5 @@
 <script lang="ts">
+	import QueryError from '$lib/components/QueryError.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
@@ -13,28 +14,48 @@
 	let restoringId = $state<string | null>(null);
 	let problem = $state<string | null>(null);
 
+	/**
+	 * Debounced copy of `search`, sent to the server.
+	 *
+	 * MUST be an `$effect` - a bare IIFE here once meant the lot's search never
+	 * ran at all, and svelte-check could not tell, because a bare IIFE is valid
+	 * JavaScript. Filtering the capped page in the browser is worse than useless
+	 * past 250 rows: an older archived idea is not merely absent from results, it
+	 * cannot be found or restored at all.
+	 */
+	let searchQuery = $state('');
+
+	$effect(() => {
+		const value = search;
+		const timer = setTimeout(() => {
+			searchQuery = value;
+		}, 250);
+		return () => clearTimeout(timer);
+	});
+
 	$effect(() => {
 		convex.start();
 	});
 
 	$effect(() => {
-		const next = watchQuery<Lot>(convex.client!, api.ideas.list, { includeArchived: true });
+		const next = watchQuery<Lot>(convex.client!, api.ideas.list, {
+			includeArchived: true,
+			search: searchQuery
+		});
 		handle = next;
 		return () => {
 			next.dispose();
 		};
 	});
 
-	const archived = $derived.by(() => {
-		const needle = search.trim().toLowerCase();
-		const rows = (handle?.current?.ideas ?? []).filter((idea) => idea.archived);
-		if (!needle) return rows;
-		return rows.filter(
-			(idea) =>
-				idea.title.toLowerCase().includes(needle) ||
-				(idea.preview ?? '').toLowerCase().includes(needle)
-		);
-	});
+	const all = $derived(handle?.current?.ideas ?? []);
+	const truncated = $derived(handle?.current?.truncated ?? false);
+	const total = $derived(handle?.current?.total ?? 0);
+
+	const archived = $derived(all.filter((idea) => idea.archived));
+
+	/** True when a filter is narrowing the view, so the empty state can say so. */
+	const filtering = $derived(search.trim().length > 0);
 
 	async function restore(idea: Idea) {
 		restoringId = idea._id;
@@ -79,17 +100,32 @@
 		/>
 	</div>
 
+	<QueryError handle={handle} what="The archive" />
+
 	{#if problem}
 		<p class="mb-3 rounded-md border border-bad/25 bg-bad-soft px-3 py-2 text-sm text-bad" role="alert">
 			{problem}
 		</p>
 	{/if}
 
-	{#if archived.length === 0}
+	{#if truncated && !filtering}
+		<p class="mb-3 rounded-md border border-warn/25 bg-warn-soft px-3 py-2 font-mono text-[11px] tracking-wide text-warn">
+			Showing {all.length} of {total}. Clear search to narrow it - older ideas are still here, just not loaded.
+		</p>
+	{/if}
+
+	{#if handle?.error}
+		<!-- An empty state here would be a lie: nothing is archived *as far as this
+		     page knows*, which is not the same as nothing being archived. -->
+	{:else if archived.length === 0}
 		<div class="rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
-			<p class="font-mono text-sm text-ink-2">Nothing archived.</p>
+			<p class="font-mono text-sm text-ink-2">
+				{filtering ? 'Nothing archived matches that search.' : 'Nothing archived.'}
+			</p>
 			<p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-3">
-				Archiving is reversible, and an idea keeps the stage it was parked from.
+				{filtering
+					? 'Search looks at the title and the start of the notes.'
+					: 'Archiving is reversible, and an idea keeps the stage it was parked from.'}
 			</p>
 		</div>
 	{:else}

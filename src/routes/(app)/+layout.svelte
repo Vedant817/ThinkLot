@@ -228,13 +228,19 @@
 		<!--
 			Connection banner. Fixed to the bottom so it never covers the capture bar
 			at the top, and it sits above the phone nav bar.
+
+		Shown only when genuinely DISCONNECTED. `connection` starts as
+		'connecting' and `applyConnectionState` maps "has never connected yet" to
+		that same value, so every cold page load announced that it was
+		reconnecting - a claim about a dropped connection while the socket was in
+		fact opening for the first time.
 		-->
-		{#if connection !== 'connected'}
+		{#if connection === 'disconnected'}
 			<div
 				class="fixed bottom-14 left-1/2 z-50 -translate-x-1/2 rounded-full border border-warn/30 bg-warn-soft px-3 py-1 font-mono text-[10px] tracking-wider text-warn uppercase md:bottom-4"
 				role="status"
 			>
-				{connection === 'connecting' ? 'Reconnecting…' : 'Offline — ideas may not save'}
+				Offline — ideas may not save
 			</div>
 		{/if}
 	</div>

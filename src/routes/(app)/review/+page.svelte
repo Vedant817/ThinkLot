@@ -188,7 +188,14 @@
 		</p>
 	{/if}
 
-	{#if visible.length === 0}
+	<!--
+		Gated on `handle.error`. Previously the error banner and "Nothing needs
+		reviewing." rendered together, which is the same lie the lot page told: a
+		failed query is not the same fact as an empty lot.
+	-->
+	{#if handle?.error}
+		<!-- error is shown above; do not also claim there is nothing to review -->
+	{:else if visible.length === 0}
 		<div class="rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
 			<p class="font-mono text-sm text-ink-2">
 				{items.length === 0 ? 'Nothing needs reviewing.' : 'Nothing with that reason.'}

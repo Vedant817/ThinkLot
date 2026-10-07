@@ -332,6 +332,22 @@ export const update = mutation({
 		description: v.optional(v.union(v.string(), v.null())),
 		problem: v.optional(v.union(v.string(), v.null())),
 		tags: v.optional(v.union(v.array(v.string()), v.null())),
+
+		/**
+		 * Append / remove one tag, computed from CURRENT server state.
+		 *
+		 * The client used to send a whole new tags array built from its own
+		 * possibly-stale copy. Clicking a tag's `x` blurs the input first, which
+		 * fired `addTag` with `[...idea.tags, newTag]` and then `removeTag` with
+		 * `idea.tags.filter(...)` built from the same stale `idea` - so the second
+		 * patch overwrote the first and the newly added tag was silently lost.
+		 *
+		 * Expressing the intent rather than the result removes the race: each
+		 * mutation reads current tags and applies one change, and Convex's OCC
+		 * retries the loser of a genuine concurrent write.
+		 */
+		addTag: v.optional(v.string()),
+		removeTag: v.optional(v.string()),
 		/**
 		 * `null` clears a score. `undefined` cannot: Convex's `convexToJson` drops
 		 * object keys whose value is undefined BEFORE the request is sent, so
@@ -368,6 +384,21 @@ export const update = mutation({
 		} else {
 			const tags = normaliseTags(args.tags);
 			if (tags !== undefined) patch.tags = tags;
+		}
+
+		// Single-tag edits are resolved against the CURRENT stored tags, not
+		// against anything the caller sent. See the arg docs for why.
+		if (args.addTag !== undefined) {
+			const added = normaliseTags([args.addTag]);
+			if (added && added.length) {
+				const merged = [...idea.tags];
+				for (const tag of added) if (!merged.includes(tag)) merged.push(tag);
+				patch.tags = normaliseTags(merged);
+			}
+		}
+		if (args.removeTag !== undefined) {
+			const target = normaliseTags([args.removeTag])?.[0];
+			if (target) patch.tags = idea.tags.filter((t) => t !== target);
 		}
 
 		// `normaliseScore(null)` returns undefined, and `patch` removes a field set
