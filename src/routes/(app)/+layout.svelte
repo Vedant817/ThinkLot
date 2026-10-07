@@ -2,7 +2,9 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import AuthForm from '$lib/components/AuthForm.svelte';
+	import ShortcutHelp from '$lib/components/ShortcutHelp.svelte';
 	import { convex } from '$lib/convex/client.svelte';
+	import { buildShortcuts, isTyping, resolve, type Shortcut } from '$lib/keyboard';
 
 	const { children } = $props();
 
@@ -56,6 +58,72 @@
 		await goto('/login', { replaceState: true });
 	}
 
+	// ---------------------------------------------------------------------
+	// Keyboard shortcuts
+	//
+	// Live here rather than per-page so one registry answers for the whole app
+	// and the "do not fire while typing" guard cannot be forgotten by the next
+	// page that adds a handler.
+	// ---------------------------------------------------------------------
+
+	let showShortcuts = $state(false);
+	let pendingChord = $state<string | null>(null);
+	let chordTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/**
+	 * Reach the capture field by contract, not by prop drilling.
+	 *
+	 * CaptureBar owns its textarea, and threading a bindable ref through the
+	 * layout, the page and the component would couple three files to one text
+	 * field. One documented attribute is the smaller cost, and it cannot drift
+	 * silently the way an undeclared coupling would.
+	 */
+	function focusCapture() {
+		const field = document.querySelector<HTMLTextAreaElement>('[data-capture-field]');
+		if (field) {
+			field.focus();
+			field.scrollIntoView({ block: 'nearest' });
+		} else {
+			// No capture bar on this route. The lot is where capture belongs, so go
+			// there and let the user press the key again.
+			void goto('/ideas');
+		}
+	}
+
+	const shortcuts: Shortcut[] = buildShortcuts({
+		focusCapture,
+		go: (path) => void goto(path),
+		toggleHelp: () => (showShortcuts = !showShortcuts),
+		escape: () => {
+			if (showShortcuts) {
+				showShortcuts = false;
+				return;
+			}
+			if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+		}
+	});
+
+	function onWindowKeydown(event: KeyboardEvent) {
+		// The guard the old `/` handler got wrong: it excluded only the capture
+		// textarea, so `/` was untypable in the search field - pressing it yanked
+		// focus away mid-word.
+		if (isTyping(event.target)) return;
+
+		const { run, nextChord } = resolve(shortcuts, event, pendingChord);
+		pendingChord = nextChord;
+
+		if (chordTimer) clearTimeout(chordTimer);
+		if (nextChord) {
+			// A chord that is never completed lapses rather than leaving the app
+			// waiting for a second key indefinitely.
+			chordTimer = setTimeout(() => (pendingChord = null), 1200);
+		}
+
+		if (!run) return;
+		event.preventDefault();
+		run.run();
+	}
+
 	/**
 	 * Only destinations that actually exist are navigable.
 	 *
@@ -83,6 +151,8 @@
 </script>
 
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 {#if !ready}
 	<!-- Full-page hold while auth resolves. Deliberately plain: no spinner to stare at. -->
 	<div class="grid min-h-dvh place-items-center bg-paper">
@@ -107,13 +177,28 @@
 			class="flex items-center justify-between border-b border-rule bg-paper px-4 py-3 md:hidden"
 		>
 			<a href="/ideas" class="font-mono text-sm font-bold tracking-tight">ThinkLot</a>
-			<button
-				type="button"
-				onclick={signOut}
-				class="font-mono text-[11px] tracking-wider text-ink-3 uppercase"
-			>
-				Sign out
-			</button>
+			<!--
+				Theme toggle on mobile too. It lived only in the sidebar's
+				`hidden md:flex`, so on a phone - the device this app is most used on -
+				there was no way to reach it at all.
+			-->
+			<div class="flex items-center gap-4">
+				<button
+					type="button"
+					onclick={toggleTheme}
+					aria-pressed={theme === 'dark'}
+					class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink md:hidden"
+				>
+					{theme === 'dark' ? 'Light' : 'Dark'}
+				</button>
+				<button
+					type="button"
+					onclick={signOut}
+					class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink"
+				>
+					Sign out
+				</button>
+			</div>
 		</header>
 
 		<div class="flex">
@@ -244,4 +329,8 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if showShortcuts}
+		<ShortcutHelp {shortcuts} onclose={() => (showShortcuts = false)} />
+	{/if}
 {/if}

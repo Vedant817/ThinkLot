@@ -164,30 +164,6 @@
 	}
 </script>
 
-<svelte:window
-	onkeydown={(event) => {
-		// The capture bar is the product. Reaching for the mouse to type a thought
-		// is the friction this whole app exists to remove.
-		//
-		// Two guards the first version lacked: modifiers must be absent (otherwise
-		// Ctrl+/ and Cmd+/ are swallowed), and it must not fire while typing into
-		// *any* text field - previously it only excluded the capture box, so `/`
-		// was untypable in the search field.
-		if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-
-		const active = document.activeElement;
-		const typing =
-			active instanceof HTMLInputElement ||
-			active instanceof HTMLTextAreaElement ||
-			(active instanceof HTMLElement && active.isContentEditable);
-
-		if (typing) return;
-
-		event.preventDefault();
-		textarea?.focus();
-	}}
-/>
-
 <!--
 	Flat `bg-paper`. This was `bg-paper/95 backdrop-blur-sm`, i.e. glassmorphism on
 	the primary capture surface, which the project's own "utilitarian ledger" rule
@@ -227,7 +203,15 @@
 				spellcheck="true"
 				enterkeyhint="done"
 				aria-label="Capture an idea"
+				aria-keyshortcuts="/"
 				placeholder="What just came to you?"
+				/**
+				 * The global shortcut layer finds this field by this attribute rather
+				 * than by a prop drilled through three components. The `/` handler that
+				 * used to live here is gone - it duplicated the registry and guarded
+				 * only this textarea, so `/` was untypable in the search field.
+				 */
+				data-capture-field
 				class="max-h-80 w-full resize-none bg-transparent px-1 py-2.5 text-[15px] leading-6 text-ink outline-none placeholder:text-ink-3"
 			></textarea>
 
