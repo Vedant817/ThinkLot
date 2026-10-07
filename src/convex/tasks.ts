@@ -59,18 +59,29 @@ async function ownedIdea(ctx: MutationCtx, ideaId: Id<'ideas'>) {
 /**
  * Next position in an idea's checklist.
  *
- * A checklist is a personal, handful-sized list, so counting rows is the
- * honest bound here - there is no pagination problem to solve, and
- * `.take()` would silently truncate the count and duplicate positions.
- * Gaps in `position` are fine: only the relative order matters, and the
- * reader sorts by it.
+ * `max(position) + 1`, NOT `rows.length`. The count version collides: add three
+ * tasks (positions 0, 1, 2), delete the middle one, and the next add is handed
+ * position 2 as well - a duplicate, with two rows the reader sorts between
+ * arbitrarily because `ideas:get` orders by `position` with no tiebreaker.
+ * Verified by adversarial QA as `[{step one,0},{step three,2},{step four,2}]`.
+ *
+ * A checklist is a personal, handful-sized list, so collecting it is the honest
+ * bound here - there is no pagination problem to solve. `.take()` would silently
+ * truncate the set and hand out positions that already exist.
+ *
+ * Gaps are fine and expected: only the relative order matters.
  */
 async function nextPosition(ctx: MutationCtx, ideaId: Id<'ideas'>) {
 	const rows = await ctx.db
 		.query('ideaTasks')
 		.withIndex('by_idea', (q) => q.eq('ideaId', ideaId))
 		.collect();
-	return rows.length;
+
+	let highest = -1;
+	for (const row of rows) {
+		if (row.position > highest) highest = row.position;
+	}
+	return highest + 1;
 }
 
 /** Task titles get the same treatment as idea bodies: trimmed, bounded. */

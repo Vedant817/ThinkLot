@@ -188,8 +188,14 @@ if (-not (Refused $lc)) {
     $roundTrip = (Call 'ideas:get' (@{ideaId=$lc.value} | ConvertTo-Json -Compress) $tokenA).value.idea
     Check "the full text is stored, not truncated" ($roundTrip.description.Length -ge 390) "-> stored length=$($roundTrip.description.Length)"
 }
+# Superseded behaviour, kept as a regression guard in its NEW form.
+# This used to assert that a 301-character title is REJECTED. It was a
+# defensible rule at the time - the client's parseCapture already split long
+# input, so the cap only ever fired on the raw API - but it meant the invariant
+# "nothing the user typed is ever thrown away" lived in the browser only. A
+# second client would have hit the rejection. Section 11f now asserts the split.
 $overLongTitle = Call 'ideas:capture' (@{ title=("x" * 301) } | ConvertTo-Json -Depth 5 -Compress) $tokenA 'mutation'
-Check "an over-long title is rejected rather than silently cut" (Refused $overLongTitle)
+Check "a 301-character capture is split, not rejected" (-not (Refused $overLongTitle)) "err=$($overLongTitle.errorMessage)"
 
 Write-Host "`n== 11. Review queue (Week 5) ==" -ForegroundColor Cyan
 # One strong idea (10 x 1 x 10 = 100), one parked, one unscored inbox item, one
@@ -316,6 +322,79 @@ Write-Host "`n== 14c. Deleting the idea removes its tasks ==" -ForegroundColor C
 # ideas:remove cascades to ideaTasks; this exercises that path.
 Check "the idea can be deleted" (-not (Refused (Call 'ideas:remove' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA 'mutation')))
 Check "a deleted idea is gone from get" ($null -eq (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.idea)
+
+Write-Host "`n== 11e. Scores can be set AND cleared ==\" -ForegroundColor Cyan
+# Clearing was impossible: the client sent `undefined`, Convex's convexToJson
+# dropped the key before the request left the browser, so `'impact' in args` was
+# never true server-side and the score could never be removed. The range input
+# compounded it - `min="1"` with `value={value ?? 0}` is clamped up to 1 by HTML,
+# so `n === 0` was unreachable and the thumb sat at 1/10 on an unscored idea.
+# The contract is now an explicit `null`.
+$scoreId = (Call 'ideas:capture' (@{ title='score clearing probe' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$null = Call 'ideas:update' (@{ ideaId=$scoreId; impact=7; effort=3; confidence=9 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$scored = (Call 'ideas:get' (@{ ideaId=$scoreId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "scores persist when set" ($scored.impact -eq 7 -and $scored.effort -eq 3 -and $scored.confidence -eq 9) "-> $($scored.impact)/$($scored.effort)/$($scored.confidence)"
+
+$null = Call 'ideas:update' (@{ ideaId=$scoreId; impact=4 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$partly = (Call 'ideas:get' (@{ ideaId=$scoreId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "omitting a score leaves it unchanged" ($partly.impact -eq 4 -and $partly.effort -eq 3 -and $partly.confidence -eq 9) "-> $($partly.impact)/$($partly.effort)/$($partly.confidence)"
+
+$null = Call 'ideas:update' (@{ ideaId=$scoreId; impact=$null } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$cleared = (Call 'ideas:get' (@{ ideaId=$scoreId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "sending null CLEARS a score" ($null -eq $cleared.impact) "-> impact is $($cleared.impact)"
+Check "clearing one score leaves the others alone" ($cleared.effort -eq 3 -and $cleared.confidence -eq 9) "-> $($cleared.effort)/$($cleared.confidence)"
+
+Check "score 0 is still rejected (valid range is 1-10)" (Refused (Call 'ideas:update' (@{ ideaId=$scoreId; impact=0 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "score 11 is still rejected" (Refused (Call 'ideas:update' (@{ ideaId=$scoreId; impact=11 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+
+Write-Host "`n== 11f. Clearing text fields, and long captures that lose nothing ==\" -ForegroundColor Cyan
+# `undefined` cannot express "clear" - Convex's convexToJson drops those keys
+# before the request leaves the browser - so `null` is the explicit contract for
+# every optional field except `title`, which must never be blank.
+# `capture` has no `problem` argument (it is set later via update), so this has to
+# be two steps. Passing it to capture fails as an unknown arg and the whole probe
+# silently cascades from a null id.
+$clearId = (Call 'ideas:capture' (@{ title='clear semantics probe'; description='original body' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$null = Call 'ideas:update' (@{ ideaId=$clearId; problem='original problem'; tags=@('alpha','beta') } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$filled = (Call 'ideas:get' (@{ ideaId=$clearId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "body, problem and tags are all set first" ($filled.description -eq 'original body' -and $filled.problem -eq 'original problem' -and $filled.tags.Count -eq 2) "-> desc='$($filled.description)' problem='$($filled.problem)' tags=$($filled.tags -join ',')"
+
+$null = Call 'ideas:update' (@{ ideaId=$clearId; description=$null; problem=$null; tags=$null } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$clearedText = (Call 'ideas:get' (@{ ideaId=$clearId } | ConvertTo-Json -Compress) $tokenA).value.idea
+# `@(@().Count)` is 1, not 0 - Measure-Object is the honest emptiness test here.
+$tagCount = ($clearedText.tags | Measure-Object).Count
+Check "null clears the description" ($null -eq $clearedText.description) "-> description is '$($clearedText.description)'"
+Check "null clears the problem" ($null -eq $clearedText.problem) "-> problem is '$($clearedText.problem)'"
+Check "null clears the tags" ($tagCount -eq 0) "-> tag count=$tagCount"
+Check "clearing the body leaves the title intact" ($clearedText.title -eq 'clear semantics probe')
+Check "a blank title is still refused (an idea needs a label)" (Refused (Call 'ideas:update' (@{ ideaId=$clearId; title='' } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+
+# The client's parseCapture splits a long dictated blob, so the app worked while
+# the raw API refused the same input. A second client (mobile) would have hit it.
+$wall = 'START ' + ('y' * 9000) + ' SENTENCE-END'
+$longId = Call 'ideas:capture' (@{ title=$wall } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "a 9,000-character capture is ACCEPTED, not rejected" (-not (Refused $longId)) "err=$($longId.errorMessage)"
+$longIdea = (Call 'ideas:get' (@{ ideaId=$longId.value } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "the over-long title is capped at the label limit" ($longIdea.title.Length -le 300) "-> title length $($longIdea.title.Length)"
+Check "the overflow is preserved in the description, not discarded" ($longIdea.description -match 'SENTENCE-END') "-> description length $($longIdea.description.Length)"
+
+Write-Host "`n== 14d. Task positions stay unique after a deletion ==\" -ForegroundColor Cyan
+# nextPosition used to return rows.length, so add-three / delete-the-middle /
+# add-again handed out position 2 twice, and ideas:get sorts by position with no
+# tiebreaker - the two rows' relative order became arbitrary.
+$posIdea = (Call 'ideas:capture' (@{ title='position probe' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$p1 = (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='step one' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$p2 = (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='step two' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$p3 = (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='step three' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$null = Call 'tasks:removeTask' (@{ taskId=$p2 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$p4 = (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='step four' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$posTasks = (Call 'ideas:get' (@{ ideaId=$posIdea } | ConvertTo-Json -Compress) $tokenA).value.tasks
+$distinct = @($posTasks | ForEach-Object { $_.position } | Select-Object -Unique).Count
+$posTitles = @($posTasks | ForEach-Object { $_.title }) -join ','
+$posList = @($posTasks | ForEach-Object { $_.position }) -join ','
+Check "positions are unique after a mid-list deletion" ($distinct -eq @($posTasks).Count) "-> positions: $posList"
+Check "capture order is preserved despite the gap" ($posTitles -eq 'step one,step three,step four') "-> $posTitles"
+Check "a client-supplied position is still rejected" (Refused (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='sneaky'; position=0 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
 
 Write-Host "`n== 15. Brute-force throttle (auth:signIn) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.

@@ -63,16 +63,6 @@ const schema = defineSchema({
 		// One counter row per (user, key); the uniqueness that matters.
 		.index('by_user_key', ['userId', 'key']),
 
-	/**
-	 * TEMPORARY: scratch space for the one-off QA-data scrub in
-	 * src/convex/maintenance.ts. Removed once that scrub has run - see the file
-	 * header for why it exists and why it is shaped as one-page-per-call.
-	 */
-	scratchDoomed: defineTable({
-		userId: v.id('users'),
-		email: v.string()
-	}).index('by_user', ['userId']),
-
 	ideas: defineTable({
 		userId: v.id('users'),
 

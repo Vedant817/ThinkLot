@@ -9,6 +9,7 @@ import {
 	normaliseTitle,
 	normaliseRevisitAt,
 	nowMs,
+	TITLE_MAX,
 	ValidationError
 } from '../lib/convex/validation';
 
@@ -248,8 +249,35 @@ export const capture = mutation({
 	handler: async (ctx, args) => {
 		const userId = await requireUser(ctx);
 
-		const title = normaliseTitle(args.title);
-		if (!title) {
+		/**
+		 * Over-long input is split here rather than rejected.
+		 *
+		 * `normaliseTitle` caps a title at 300 characters, and that cap is right -
+		 * a title is a label, and a 9,000-character one cannot be listed or
+		 * scanned. But the client's `parseCapture` already splits a long dictated
+		 * blob into title + description, so the app works while the raw API does
+		 * not. That asymmetry is a trap: it works in the browser and fails the
+		 * moment a second client speaks to the same endpoint, which is exactly
+		 * what a mobile app is.
+		 *
+		 * So the invariant lives on the server: nothing the user typed is ever
+		 * thrown away. Whatever does not fit the title is appended to the
+		 * description instead.
+		 */
+		const rawTitle = (args.title ?? '').trim();
+		const incomingBody = normaliseBody(args.description) ?? '';
+
+		let title = rawTitle;
+		let description = incomingBody;
+
+		if (title.length > TITLE_MAX) {
+			const overflow = title.slice(TITLE_MAX);
+			title = normaliseTitle(title.slice(0, TITLE_MAX)) ?? overflow.slice(0, TITLE_MAX);
+			description = description ? `${description}\n\n${overflow}` : overflow;
+		}
+
+		const cleanTitle = normaliseTitle(title);
+		if (!cleanTitle) {
 			throw new ValidationError('An idea needs a title.');
 		}
 
@@ -259,8 +287,8 @@ export const capture = mutation({
 		const ideaId = await ctx.db.insert('ideas', {
 			userId,
 			seq,
-			title,
-			description: normaliseBody(args.description),
+			title: cleanTitle,
+			description: normaliseBody(description),
 			status: 'inbox',
 			tags: [],
 			favorite: false,
@@ -287,13 +315,33 @@ export const capture = mutation({
 export const update = mutation({
 	args: {
 		ideaId: v.id('ideas'),
+		/**
+		 * The update contract, uniformly: OMIT a field to leave it alone, send
+		 * `null` to CLEAR it, send a value to set it.
+		 *
+		 * `undefined` cannot express "clear" - Convex's `convexToJson` drops keys
+		 * whose value is undefined before the request leaves the browser, so the
+		 * handler's `if ('description' in args)` would never be true. Without an
+		 * explicit null, a field could be set but never unset.
+		 *
+		 * `title` is deliberately NOT nullable. An idea with no title cannot be
+		 * listed, searched or quoted, so "Title cannot be empty" is the correct
+		 * refusal rather than a gap in the contract.
+		 */
 		title: v.optional(v.string()),
-		description: v.optional(v.string()),
-		problem: v.optional(v.string()),
-		tags: v.optional(v.array(v.string())),
-		impact: v.optional(v.number()),
-		effort: v.optional(v.number()),
-		confidence: v.optional(v.number()),
+		description: v.optional(v.union(v.string(), v.null())),
+		problem: v.optional(v.union(v.string(), v.null())),
+		tags: v.optional(v.union(v.array(v.string()), v.null())),
+		/**
+		 * `null` clears a score. `undefined` cannot: Convex's `convexToJson` drops
+		 * object keys whose value is undefined BEFORE the request is sent, so
+		 * `'impact' in args` would never be true server-side and an idea could be
+		 * scored but never returned to unscored. This mirrors how `revisitAt`
+		 * already expresses "clear me".
+		 */
+		impact: v.optional(v.union(v.number(), v.null())),
+		effort: v.optional(v.union(v.number(), v.null())),
+		confidence: v.optional(v.union(v.number(), v.null())),
 		revisitAt: v.optional(v.union(v.number(), v.null()))
 	},
 	handler: async (ctx, args) => {
@@ -307,12 +355,24 @@ export const update = mutation({
 		const title = normaliseTitle(args.title);
 		if (title !== undefined) patch.title = title;
 
+		// `normaliseBody(null)` returns undefined and `patch` removes a field set to
+		// undefined, so an explicit null clears the body.
 		if ('description' in args) patch.description = normaliseBody(args.description);
 		if ('problem' in args) patch.problem = normaliseBody(args.problem);
 
-		const tags = normaliseTags(args.tags);
-		if (tags !== undefined) patch.tags = tags;
+		// Tags need their own null branch. `normaliseTags(null)` returns undefined,
+		// which this handler treats as "no change" - so sending null would be a
+		// silent no-op. `tags` is a required column, so clearing it means [].
+		if (args.tags === null) {
+			patch.tags = [];
+		} else {
+			const tags = normaliseTags(args.tags);
+			if (tags !== undefined) patch.tags = tags;
+		}
 
+		// `normaliseScore(null)` returns undefined, and `patch` removes a field set
+		// to undefined - so passing null CLEARS a score instead of writing a bad
+		// one. The `in` checks are load-bearing: omitting a field leaves it alone.
 		if ('impact' in args) patch.impact = normaliseScore(args.impact, 'Impact');
 		if ('effort' in args) patch.effort = normaliseScore(args.effort, 'Effort');
 		if ('confidence' in args) {
