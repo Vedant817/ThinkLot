@@ -42,3 +42,13 @@ export type IdeaStats = {
 	unscored: number;
 	favorites: number;
 };
+
+/** One checklist row. Mirrors `ideaTasks` in the Convex schema. */
+export type IdeaTask = {
+	_id: string;
+	ideaId: string;
+	title: string;
+	completed: boolean;
+	position: number;
+	createdAt: number;
+};

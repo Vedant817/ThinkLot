@@ -1,10 +1,11 @@
 <script lang="ts">
 	import StatusPill from '$lib/components/StatusPill.svelte';
+	import TaskChecklist from '$lib/components/TaskChecklist.svelte';
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
-	import { IDEA_STATUSES, type Idea, type IdeaStatus } from '$lib/types';
+	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask } from '$lib/types';
 
 	let { data } = $props();
 
@@ -24,11 +25,14 @@
 	 * Not `$state`, for the same reason as the list page: an effect that disposes
 	 * and recreates a handle it also tracks re-schedules itself until it dies.
 	 */
-	let handle = $state<QueryHandle<{ idea: Idea; tasks: unknown[] }> | null>(null);
+	let handle = $state<QueryHandle<{ idea: Idea; tasks: IdeaTask[] }> | null>(null);
 
 	// The idea itself is always derived straight from the subscription, so a
 	// realtime edit from another device shows up here immediately.
 	const idea = $derived(handle?.current?.idea ?? null);
+	// Same for the checklist: a task added on another device appears
+	// here without a refresh, and the progress bar follows it.
+	const tasks = $derived(handle?.current?.tasks ?? []);
 
 	// `loading` must come from the subscription, not from a local flag that
 	// waits on a truthy idea. `api.ideas.get` returns `{ idea: null }` for an id
@@ -42,7 +46,7 @@
 
 	$effect(() => {
 		const id = data.id;
-		const next = watchQuery<{ idea: Idea; tasks: unknown[] }>(convex.client!, api.ideas.get, {
+		const next = watchQuery<{ idea: Idea; tasks: IdeaTask[] }>(convex.client!, api.ideas.get, {
 			ideaId: id
 		});
 		// WRITE ONLY - see the note in (app)/ideas/+page.svelte about the
@@ -242,6 +246,9 @@
 						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
 					></textarea>
 				</label>
+
+				<!-- Checklist: the bridge from "an idea I keep" to "a thing I do" -->
+				<TaskChecklist ideaId={idea._id} {tasks} />
 
 				<!-- Tags -->
 				<div class="mt-5">

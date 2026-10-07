@@ -267,6 +267,56 @@ $queueB = Call 'review:queue' '{}' $tokenB
 Check "user B's queue is empty" (@($queueB.value.items).Count -eq 0) "-> count=$(@($queueB.value.items).Count)"
 Check "user B cannot snooze user A's idea" (Refused (Call 'review:snooze' (@{ ideaId=$parkedId; days=1 } | ConvertTo-Json -Compress) $tokenB 'mutation'))
 
+Write-Host "`n== 14. Task checklists (Week 6) ==" -ForegroundColor Cyan
+# The ideaTasks table existed in the schema from the start but had no
+# writer anywhere - dead, indexed storage. These mutations make it live,
+# and the progress bar on the idea page reads it.
+$taskIdea = (Call 'ideas:capture' (@{ title='idea with a checklist' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+
+$t1 = Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='first step' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "addTask creates a task" (-not (Refused $t1)) "err=$($t1.errorMessage)"
+$t2 = Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='second step' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "a second task is created" (-not (Refused $t2)) "err=$($t2.errorMessage)"
+
+$withTasks = (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value
+Check "ideas:get returns the checklist" (@($withTasks.tasks).Count -eq 2) "-> count=$(@($withTasks.tasks).Count)"
+Check "tasks are ordered by position" ($withTasks.tasks[0].title -eq 'first step' -and $withTasks.tasks[1].title -eq 'second step') "-> $($withTasks.tasks[0].title), $($withTasks.tasks[1].title)"
+Check "new tasks start incomplete" (-not $withTasks.tasks[0].completed)
+
+$toggle = Call 'tasks:toggleTask' (@{ taskId=$withTasks.tasks[0]._id } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "toggleTask flips a task" (-not (Refused $toggle)) "err=$($toggle.errorMessage)"
+$afterToggle = (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value
+Check "the flip is persisted" ($afterToggle.tasks[0].completed -eq $true)
+
+$renamed = Call 'tasks:updateTask' (@{ taskId=$withTasks.tasks[1]._id; title='renamed step' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "updateTask renames a task" (-not (Refused $renamed)) "err=$($renamed.errorMessage)"
+Check "the rename is persisted" ((Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.tasks[1].title -eq 'renamed step')
+
+Check "an empty task title is rejected" (Refused (Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='   ' } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "a 300-char task title is rejected" (Refused (Call 'tasks:addTask' (@{ ideaId=$taskIdea; title=('x' * 300) } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "addTask rejects an unexpected arg" (Refused (Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='x'; userId='fake' } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+Check "toggleTask rejects an unexpected arg" (Refused (Call 'tasks:toggleTask' (@{ taskId=$withTasks.tasks[0]._id; completed=$true } | ConvertTo-Json -Compress) $tokenA 'mutation'))
+
+$removed = Call 'tasks:removeTask' (@{ taskId=$withTasks.tasks[1]._id } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "removeTask deletes a task" (-not (Refused $removed)) "err=$($removed.errorMessage)"
+Check "the deletion is persisted" (@((Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.tasks).Count -eq 1)
+
+Write-Host "`n== 14b. Tasks are owner-scoped ==" -ForegroundColor Cyan
+Check "addTask without a token is refused" (Refused (Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='x' } | ConvertTo-Json -Compress) $null 'mutation'))
+Check "toggleTask without a token is refused" (Refused (Call 'tasks:toggleTask' (@{ taskId=$withTasks.tasks[0]._id } | ConvertTo-Json -Compress) $null 'mutation'))
+Check "user B cannot add a task to user A's idea" (Refused (Call 'tasks:addTask' (@{ ideaId=$taskIdea; title='intruder' } | ConvertTo-Json -Compress) $tokenB 'mutation'))
+Check "user B cannot toggle user A's task" (Refused (Call 'tasks:toggleTask' (@{ taskId=$withTasks.tasks[0]._id } | ConvertTo-Json -Compress) $tokenB 'mutation'))
+Check "user B cannot remove user A's task" (Refused (Call 'tasks:removeTask' (@{ taskId=$withTasks.tasks[0]._id } | ConvertTo-Json -Compress) $tokenB 'mutation'))
+Check "user B cannot rename user A's task" (Refused (Call 'tasks:updateTask' (@{ taskId=$withTasks.tasks[0]._id; title='hijacked' } | ConvertTo-Json -Compress) $tokenB 'mutation'))
+# And user A's idea is untouched after all of that.
+$finalTasks = (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.tasks
+Check "user A's checklist is unchanged by user B's attempts" (@($finalTasks).Count -eq 1 -and $finalTasks[0].title -eq 'first step' -and $finalTasks[0].completed) "-> $($finalTasks | ForEach-Object { "$($_.title):$($_.completed)" })"
+
+Write-Host "`n== 14c. Deleting the idea removes its tasks ==" -ForegroundColor Cyan
+# ideas:remove cascades to ideaTasks; this exercises that path.
+Check "the idea can be deleted" (-not (Refused (Call 'ideas:remove' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA 'mutation')))
+Check "a deleted idea is gone from get" ($null -eq (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.idea)
+
 Write-Host "`n-------------------------------------------"
 if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
 else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
