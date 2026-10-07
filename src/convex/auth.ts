@@ -48,6 +48,33 @@ import { convexAuth } from '@convex-dev/auth/server';
  */
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+	/**
+	 * Failed-sign-in throttle, tightened from the library default.
+	 *
+	 * @convex-dev/auth already rate-limits credential sign-in at 10 failures per
+	 * hour, refilling one attempt every 6 minutes. That is on by default and was
+	 * simply never configured, so it was doing real work unremarked - 240 guesses
+	 * a day against a known account is not a rate limit in any useful sense.
+	 * Five per hour halves it with no real cost to one honest user who fumbles
+	 * their password twice.
+	 *
+	 * ## The limit is keyed on the ACCOUNT ID, not on the request
+	 *
+	 * `retrieveAccountWithCredentialsImpl` looks the account up first and only
+	 * then checks the limiter against `existingAccount._id`. There is no record
+	 * for an address that was never registered, so:
+	 *
+	 *   - brute force against a KNOWN account -> throttled, as above
+	 *   - guesses against UNKNOWN addresses     -> NOT throttled at all
+	 *
+	 * That second case is precisely what makes account enumeration cheap, and it
+	 * cannot be fixed from config. It also cannot be fixed from the `profile` hook
+	 * that receives the database handle, because that hook must return
+	 * synchronously and so cannot await the counter increment. Recorded here
+	 * rather than left to be discovered.
+	 */
+	signIn: { maxFailedAttempsPerHour: 5 },
+
 	providers: [
 		Password({
 			/**

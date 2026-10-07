@@ -159,6 +159,61 @@ class ConvexContext {
 		// "Reconnecting..." until the socket happens to open.
 		this.applyConnectionState(this.client.connectionState());
 		this.client.subscribeToConnectionState((state) => this.applyConnectionState(state));
+
+		this.watchOtherTabs();
+	}
+
+	/**
+	 * Keep this tab in step when another tab changes the session.
+	 *
+	 * Without this, signing out in one tab left every other tab fully signed in:
+	 * the shell still rendered, the lot still listed every idea in memory, and
+	 * captures kept failing with "You must be signed in." while the user believed
+	 * they had locked the app. Signing in on a phone and expecting the laptop tab
+	 * to notice has the same failure.
+	 *
+	 * ## Only the PRESENCE of a token is treated as a signal
+	 *
+	 * `storage` also fires when another tab's silent hourly refresh writes a new
+	 * access token. That is not a session change, and reacting to it would re-run
+	 * the profile query on every refresh in every open tab for no reason. So the
+	 * check is "did a token appear or disappear", not "did the token change".
+	 *
+	 * `storage` never fires in the tab that made the change, which is exactly the
+	 * behaviour wanted here: no self-echo, no double handling.
+	 */
+	private watchOtherTabs() {
+		if (typeof window === 'undefined') return;
+
+		let hadToken = readTokens().token != null;
+
+		window.addEventListener('storage', (event) => {
+			if (event.key !== TOKEN_KEY && event.key !== REFRESH_KEY) return;
+			if (event.storageArea && event.storageArea !== window.localStorage) return;
+
+			const hasToken = readTokens().token != null;
+			if (hasToken === hadToken) return; // a refresh, not a session change
+			hadToken = hasToken;
+
+			if (hasToken) {
+				// Another tab signed in. `fetchToken` reads localStorage on every
+				// call, so the new token is picked up without reinstalling the
+				// fetcher - which matters, because installing one REPLACES Convex's
+				// config and a simpler one would silently disable refresh.
+				this.auth = { status: 'authenticated', email: this.email };
+				void this.refreshProfile();
+			} else {
+				// Another tab signed out. Flip the UI now rather than waiting for
+				// the next 401, and re-assert the fetcher so Convex re-reads a now
+				// empty store and agrees.
+				this.email = null;
+				this.auth = { status: 'unauthenticated', email: null };
+				this.client?.setAuth(
+					(args) => this.fetchToken(args),
+					(isAuthenticated) => this.onAuthChanged(isAuthenticated)
+				);
+			}
+		});
 	}
 
 	/**
@@ -255,9 +310,18 @@ class ConvexContext {
 	async signIn(email: string, password: string) {
 		this.ensure();
 		try {
-			// Routed through authActions.signInAttempt rather than the library's
-			// signIn directly, so the caller cannot distinguish "no such account"
-			// from "wrong password".
+			// This calls the library's `auth:signIn` DIRECTLY, and that is deliberate.
+			//
+			// It used to route through an `authActions.signInAttempt` wrapper whose
+			// whole purpose was to collapse "InvalidAccountId" and "InvalidSecret"
+			// into one message. That bought nothing: the library action stayed
+			// publicly callable and perfectly distinguishable, so sanitising one of
+			// two entry points only created the impression the hole was closed. The
+			// wrapper was removed rather than kept as security theatre.
+			//
+			// See the file header in src/convex/auth.ts for the three fixes that were
+			// built and rejected, and why closing it properly means owning the
+			// provider via ConvexCredentials rather than wrapping the action.
 			const result = await this.action<{ tokens?: Tokens | null }>(
 				api.auth.signIn,
 				{

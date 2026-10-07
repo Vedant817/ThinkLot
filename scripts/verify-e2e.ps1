@@ -317,6 +317,32 @@ Write-Host "`n== 14c. Deleting the idea removes its tasks ==" -ForegroundColor C
 Check "the idea can be deleted" (-not (Refused (Call 'ideas:remove' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA 'mutation')))
 Check "a deleted idea is gone from get" ($null -eq (Call 'ideas:get' (@{ ideaId=$taskIdea } | ConvertTo-Json -Compress) $tokenA).value.idea)
 
+Write-Host "`n== 15. Brute-force throttle (auth:signIn) ==" -ForegroundColor Cyan
+# MUST BE LAST, and MUST use its own throwaway account.
+#
+# The limiter is keyed on the account id, and this deliberately LOCKS that
+# account for up to an hour (5 failures/hour, refilling one every 12 minutes).
+# Sharing $emailA here would lock out every later check in this run - including
+# the token used for all the owner-scope tests - so it gets a private account
+# that is never used again.
+$rlEmail = "qa-ratelimit-$stamp@example.com"
+$rlSignUp = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "the throttle test account can be created" (-not (Refused $rlSignUp)) "-> $($rlSignUp.errorMessage)"
+
+$wrongMessages = @()
+for ($i = 1; $i -le 5; $i++) {
+    $r = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+    $wrongMessages += $r.errorMessage
+}
+Check "five wrong passwords are each rejected as a bad secret" (@($wrongMessages | Where-Object { $_ -match 'InvalidSecret' }).Count -eq 5) "-> saw: $((($wrongMessages | ForEach-Object { ($_ -split ' at ')[0] }) | Select-Object -Unique) -join ' | ')"
+
+$locked = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "the sixth attempt is throttled, not merely rejected" ($locked.errorMessage -match 'TooManyFailedAttempts') "-> $(($locked.errorMessage -split ' at ')[0])"
+
+$lockedEvenCorrect = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "even the CORRECT password is refused while throttled" ($lockedEvenCorrect.errorMessage -match 'TooManyFailedAttempts') "-> $(($lockedEvenCorrect.errorMessage -split ' at ')[0])"
+Write-Host "  NOTE  $rlEmail is now throttled for up to an hour by design" -ForegroundColor DarkGray
+
 Write-Host "`n-------------------------------------------"
 if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
 else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
