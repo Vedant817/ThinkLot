@@ -35,9 +35,9 @@
 	const tasks = $derived(handle?.current?.tasks ?? []);
 
 	// `loading` must come from the subscription, not from a local flag that
-	// waits on a truthy idea. `api.ideas.get` returns `{ idea: null }` for an id
-	// you do not own, so a truthiness check hung on "LOADING" forever instead of
-	// ever reaching the "not in your lot" branch.
+	// waits on a truthy idea. `api.ideas.get` returns null for an id you do not
+	// own - not `{ idea: null }` - so a truthiness check on the payload hung on
+	// "LOADING" forever instead of ever reaching the "not in your lot" branch.
 	const loading = $derived(handle?.loading ?? true);
 
 	$effect(() => {
@@ -59,14 +59,20 @@
 
 	// Seed the buffer once, then leave it alone so typing is never clobbered by
 	// an incoming realtime update.
+	//
+	// Keyed on `data.id`, NOT on a bare `seeded` boolean. SvelteKit reuses this
+	// component when only `params` change, so a `seeded` flag that is never reset
+	// leaves the NEXT idea rendering with the PREVIOUS idea's title and notes in
+	// the buffers - and the first blur then writes them onto the new idea. One
+	// "related ideas" link away from silently overwriting somebody's work.
 	$effect(() => {
+		const id = data.id;
+		void id; // the dependency; the buffer must follow the route, not the server
 		const incoming = handle?.current?.idea;
-		if (incoming && !seeded) {
-			title = incoming.title;
-			description = incoming.description ?? '';
-			problemText = incoming.problem ?? '';
-			seeded = true;
-		}
+		if (!incoming || incoming._id !== id) return;
+		title = incoming.title;
+		description = incoming.description ?? '';
+		problemText = incoming.problem ?? '';
 	});
 
 	const score = $derived(idea ? priorityScore(idea) : null);
@@ -145,9 +151,13 @@
 		);
 	}
 
-	function setScore(field: ScoreField, value: number | undefined) {
+	function setScore(field: ScoreField, value: number | null | undefined) {
 		if (!idea) return;
-		void run(() => convex.mutation(api.ideas.update, { ideaId: idea!._id, [field]: value }));
+		// `null` clears, `undefined` leaves the field alone. The two are NOT
+		// interchangeable: Convex drops object keys whose value is undefined before
+		// the request leaves the browser, so sending undefined silently does
+		// nothing at all. That made an idea impossible to return to "unscored".
+		void run(() => convex.mutation(api.ideas.update, { ideaId: idea!._id, [field]: value ?? null }));
 	}
 
 	function setStatus(status: IdeaStatus) {
@@ -332,17 +342,38 @@
 								<input
 									id={field}
 									type="range"
-									min="1"
+									min="0"
 									max="10"
 									step="1"
 									title={hint}
 									value={value ?? 0}
 									onchange={(e) => {
 										const n = Number(e.currentTarget.value);
-										setScore(field, n === 0 ? undefined : n);
+										setScore(field, n === 0 ? null : n);
 									}}
 									class="mt-1.5 w-full accent-signal"
 								/>
+								<!--
+									`min="0"` where 0 means "not scored".
+									The previous `min="1"` with `value={value ?? 0}` was a lie in two
+									ways: HTML clamps an out-of-range value up to the minimum, so an
+									unscored idea rendered its thumb at 1/10 while the label beside it
+									read `--`; and `n === 0` was therefore unreachable, which is what
+									made clearing a score impossible.
+
+									The visible affordance for "unscored" is a real button too, rather
+									than only the far-left position on a slider, which nobody would
+									think to try.
+								-->
+								{#if value !== undefined}
+									<button
+										type="button"
+										onclick={() => setScore(field, null)}
+										class="mt-1 font-mono text-[10px] tracking-wider text-ink-3 uppercase hover:text-bad"
+									>
+										Clear {label.toLowerCase()}
+									</button>
+								{/if}
 							</div>
 						{/each}
 					</div>

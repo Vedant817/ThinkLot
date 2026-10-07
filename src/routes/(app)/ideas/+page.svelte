@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CaptureBar from '$lib/components/CaptureBar.svelte';
+	import QueryError from '$lib/components/QueryError.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
@@ -9,16 +10,31 @@
 
 	let search = $state('');
 
-	/** Debounced copy of search, sent to the server. Typing must not re-query. */
+	/** Debounced copy of `search`, sent to the server. Typing must not re-query. */
 	let searchQuery = $state('');
 
-	(() => {
+	/**
+	 * Debounce typing into a query argument.
+	 *
+	 * MUST be an `$effect`. This was briefly a bare IIFE - `(() => { ... })` -
+	 * which is a completely valid expression, so `svelte-check` stayed silent.
+	 * It ran exactly once at setup, captured `search` as `''`, and threw its
+	 * cleanup away, so `searchQuery` never changed and `api.ideas.list` was only
+	 * ever called with `search: ''`. The server-side search was inert: the field
+	 * looked like it filtered, and it filtered nothing.
+	 *
+	 * It broke because the line was written by a PowerShell string replacement
+	 * in a double-quoted string, where `$effect` interpolated to nothing. Runes
+	 * written that way vanish silently, so they are now written with the editor.
+	 */
+	$effect(() => {
 		const value = search;
 		const timer = setTimeout(() => {
 			searchQuery = value;
 		}, 250);
 		return () => clearTimeout(timer);
 	});
+
 	let tagFilter = $state<string[]>([]);
 	let showArchived = $state(false);
 	let sortBy = $state<'capture' | 'priority'>('capture');
@@ -104,20 +120,58 @@
 			: [...tagFilter, tag];
 	}
 
-	async function setStatus(idea: Idea, status: Idea['status']) {
-		await convex.mutation(api.ideas.setStatus, { ideaId: idea._id, status });
+	/**
+	 * One place a row mutation reports failure.
+	 *
+	 * These three used to be bare `await convex.mutation(...)`. A rejected
+	 * promise with no handler is an unhandled rejection: nothing appears on
+	 * screen, no rollback happens, and the star or stage the user just clicked
+	 * silently does not stick. `/board`, `/review` and `/archive` already caught;
+	 * the lot page was the odd one out.
+	 *
+	 * `busyId` is per-idea rather than a single boolean so parallel rows stay
+	 * independently interactive.
+	 */
+	let rowBusy = $state<string | null>(null);
+	let rowProblem = $state<string | null>(null);
+
+	async function runRow(idea: Idea, fn: () => Promise<unknown>) {
+		rowProblem = null;
+		rowBusy = idea._id;
+		try {
+			await fn();
+		} catch (error) {
+			rowProblem = error instanceof Error ? error.message : 'That did not save.';
+		} finally {
+			rowBusy = null;
+		}
 	}
 
+	async function setStatus(idea: Idea, status: Idea['status']) {
+		await runRow(idea, () => convex.mutation(api.ideas.setStatus, { ideaId: idea._id, status }));
+	}
+
+	/**
+	 * `toggleFavorite` is a genuine read-modify-write on the server: it reads
+	 * `idea.favorite` and writes its negation. Two rapid taps therefore execute
+	 * sequentially and cancel out, and to the user the star "does not work".
+	 * Guarding the control while the first is in flight is the honest fix; the
+	 * alternative - a server-side absolute setter - is a bigger change for a
+	 * control tapped twice a second.
+	 */
 	async function toggleFavorite(idea: Idea) {
-		await convex.mutation(api.ideas.toggleFavorite, { ideaId: idea._id });
+		if (rowBusy === idea._id) return;
+		await runRow(idea, () => convex.mutation(api.ideas.toggleFavorite, { ideaId: idea._id }));
 	}
 
 	async function archive(idea: Idea) {
-		await convex.mutation(api.ideas.setArchived, {
-			ideaId: idea._id,
-			archived: true,
-			statusBeforeArchive: idea.status
-		});
+		await runRow(idea, () =>
+			convex.mutation(api.ideas.setArchived, {
+				ideaId: idea._id,
+				archived: true,
+				statusBeforeArchive: idea.status
+			})
+		);
 	}
 
 	/** Next stage in the pipeline, or null when already done. */
@@ -150,6 +204,14 @@
 <CaptureBar />
 
 <div class="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
+	<!--
+		Every other route has an <h1>; this one had none, which fails 1.3.1 and
+		2.4.6 and leaves screen-reader users with no page-level landmark on the
+		app's most-used screen. The counters below read as a heading visually, so
+		the heading is present but visually hidden rather than duplicated.
+	-->
+	<h1 class="sr-only">The lot</h1>
+
 	<!-- Counters. Three numbers, because a lot with 200 ideas and no sense of
 	     size is just a list. -->
 	<div class="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-rule pb-4">
@@ -234,7 +296,21 @@
 	{/if}
 
 	<!-- The ledger -->
-	{#if visible.length === 0}
+	<QueryError handle={listHandle} what="The lot" />
+
+	{#if rowProblem}
+		<p
+			class="mb-3 rounded-md border border-bad/25 bg-bad-soft px-3 py-2 text-sm text-bad"
+			role="alert"
+		>
+			{rowProblem}
+		</p>
+	{/if}
+
+	{#if listHandle?.error}
+		<!-- An empty state here would be a lie: the list is empty because the
+		     query failed, not because the user has no ideas. -->
+	{:else if visible.length === 0}
 		<div class="rounded-lg border border-dashed border-rule-strong px-5 py-14 text-center">
 			<p class="font-mono text-sm text-ink-2">
 				{lot.length === 0 ? 'Nothing parked yet.' : 'Nothing matches those filters.'}
@@ -260,7 +336,10 @@
 				{@const score = priorityScore(idea)}
 				{@const band = scoreBand(score)}
 				{@const upNext = nextStage(idea.status)}
-				<li class="group flex items-start gap-3 px-3 py-3 transition-colors hover:bg-panel">
+				<li
+					class="group flex items-start gap-3 px-3 py-3 transition-colors hover:bg-panel"
+					aria-busy={rowBusy === idea._id}
+				>
 					<!-- The plate. Amber rule whose length encodes the score. -->
 					<div class="flex w-16 shrink-0 flex-col items-end gap-1.5 pt-0.5">
 						<span

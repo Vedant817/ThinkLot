@@ -132,10 +132,28 @@
 	/*
 		Focus is the one piece of decoration this design spends money on. It is
 		the only thing a keyboard user can see, so it must be unmissable.
+
+		`!important` is load-bearing here, not laziness.
+
+		This rule sits in `@layer base`, but Tailwind's `outline-none` is a
+		UTILITIES-layer rule. Cascade layers resolve before specificity, so
+		utilities beat base regardless of how specific this selector is - and
+		`outline-none` sets `outline-style: none`, the very longhand this rule
+		relies on. Eleven controls carried `outline-none`, so the ring this file
+		promises never rendered on any of them; the only remaining focus cue was a
+		1px border-colour change, which satisfies 2.4.7 only marginally.
+
+		The alternative - deleting `outline-none` from all eleven controls - leaves
+		the next person free to add it again and silently reintroduce this. An
+		accessibility affordance that must survive a utility class is the textbook
+		case for `!important`.
+
+		Needs a browser to confirm the computed outline; the reasoning here is
+		Tailwind's layer order plus the emitted `outline-style` declaration.
 	*/
 	:focus-visible {
-		outline: 2px solid var(--signal);
-		outline-offset: 2px;
+		outline: 2px solid var(--signal) !important;
+		outline-offset: 2px !important;
 		border-radius: 2px;
 	}
 

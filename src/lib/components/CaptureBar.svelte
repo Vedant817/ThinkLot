@@ -15,10 +15,43 @@
 
 	let { onCaptured }: Props = $props();
 
-	let draft = $state('');
+	/**
+	 * Survives a reload and a navigation.
+	 *
+	 * `sessionStorage` rather than a `beforeNavigate` guard, because it covers
+	 * both cases with one mechanism: any remount of this component - navigating
+	 * to an idea and back, or a hard reload - re-reads the draft. A
+	 * `beforeNavigate` guard would not fire on reload at all.
+	 *
+	 * Restored ONCE here at initialisation, deliberately not inside an
+	 * `$effect`: an effect that reads `draft` and then writes it re-triggers
+	 * itself, and the restore would fight the user's typing forever.
+	 */
+	const DRAFT_KEY = 'thinklot.capture.draft';
+
+	function readStoredDraft(): string {
+		try {
+			return sessionStorage.getItem(DRAFT_KEY) ?? '';
+		} catch {
+			return '';
+		}
+	}
+
+	function storeDraft() {
+		try {
+			if (draft.trim()) sessionStorage.setItem(DRAFT_KEY, draft);
+			else sessionStorage.removeItem(DRAFT_KEY);
+		} catch {
+			/* storage unavailable; the in-memory draft still works */
+		}
+	}
+
+	let draft = $state(readStoredDraft());
 	let saving = $state(false);
 	let justSaved = $state<string | null>(null);
 	let problem = $state<string | null>(null);
+	/** Set when input hit the cap, so the loss is visible rather than silent. */
+	let overflow = $state<string | null>(null);
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 
 	/** Gaps between input events, used to tell dictation from typing. */
@@ -41,8 +74,21 @@
 		}
 		lastInputAt = now;
 
-		if (draft.length > DRAFT_LIMIT) draft = draft.slice(0, DRAFT_LIMIT);
+		// Truncate, but SAY SO. The original `draft = draft.slice(0, DRAFT_LIMIT)`
+		// rewrote the textarea's own value: the caret pinned at the cap, typing
+		// appeared to stop working, and a pasted 10,000-character wall lost 6,000
+		// characters with nothing on screen to explain why. That directly
+		// contradicts this module's own promise that nothing is ever thrown away.
+		if (draft.length > DRAFT_LIMIT) {
+			const dropped = draft.length - DRAFT_LIMIT;
+			draft = draft.slice(0, DRAFT_LIMIT);
+			overflow = `That was ${dropped.toLocaleString()} characters over the limit. The first ${DRAFT_LIMIT.toLocaleString()} were kept - split a very long capture across several ideas rather than losing the tail.`;
+		} else if (overflow) {
+			overflow = null;
+		}
+
 		pending = draft.trim() || null;
+		storeDraft();
 	}
 
 	/**
@@ -96,6 +142,8 @@
 			gaps = [];
 			lastInputAt = 0;
 			pending = null;
+			overflow = null;
+			storeDraft();
 			justSaved = parsed.source === 'dictated' ? 'Dictated idea parked' : 'Idea parked';
 			onCaptured?.(ideaId);
 		} catch (error) {
@@ -140,9 +188,13 @@
 	}}
 />
 
-<div
-	class="sticky top-0 z-40 border-b border-rule bg-paper/95 backdrop-blur-sm supports-[not(backdrop-filter:blur(0))]:bg-paper"
->
+<!--
+	Flat `bg-paper`. This was `bg-paper/95 backdrop-blur-sm`, i.e. glassmorphism on
+	the primary capture surface, which the project's own "utilitarian ledger" rule
+	forbids: flat surfaces, 1px rules, no blur. It also cost a compositing layer
+	on the one component that renders on every scroll.
+-->
+<div class="sticky top-0 z-40 border-b border-rule bg-paper">
 	<div class="mx-auto w-full max-w-5xl px-4 py-3 sm:px-6">
 		<div
 			class="flex items-start gap-2 rounded-lg border border-rule-strong bg-panel transition-colors focus-within:border-signal focus-within:bg-paper"
@@ -198,13 +250,15 @@
 			<p
 				class="font-mono text-[11px] tracking-wide"
 				class:text-bad={problem !== null}
-				class:text-warn={problem === null && pending !== null}
-				class:text-ink-3={problem === null && pending === null}
-				role={problem ? 'alert' : 'status'}
+				class:text-warn={problem === null && (pending !== null || overflow !== null)}
+				class:text-ink-3={problem === null && pending === null && overflow === null}
+				role={problem || overflow ? 'alert' : 'status'}
 				aria-live="polite"
 			>
 				{#if problem}
 					{problem}
+				{:else if overflow}
+					{overflow}
 				{:else if saving}
 					Saving…
 				{:else if pending}

@@ -34,12 +34,21 @@
 		}
 	}
 
+	/**
+	 * Clear the field only once the write has actually landed.
+	 *
+	 * The previous version did `draft = ''` BEFORE awaiting, so a failed add
+	 * showed the error and had already eaten the typed task - the one thing the
+	 * user cannot re-derive. Same shape as the capture bar's silent truncation:
+	 * discard before confirmation, lose the user's words.
+	 */
 	function add() {
 		const title = draft.trim();
 		if (!title) return;
-		const value = title;
-		draft = '';
-		void run(() => convex.mutation(api.tasks.addTask, { ideaId, title: value }));
+		void run(async () => {
+			await convex.mutation(api.tasks.addTask, { ideaId, title });
+			draft = '';
+		});
 	}
 
 	function toggle(task: IdeaTask) {
@@ -111,6 +120,12 @@
 		<ul class="rule-y mt-2 overflow-hidden rounded-lg border border-rule bg-paper">
 			{#each tasks as task (task._id)}
 				<li class="group flex items-start gap-2.5 px-3 py-2">
+					<!--
+						The button is 24x24 (WCAG 2.2 SC 2.5.8) and the visible box inside
+						it is 16x16. The checkbox is the primary interaction of the whole
+						checklist, and it was previously a bare `size-4` control - well
+						under the minimum target size, and awkward on a phone.
+					-->
 					<button
 						type="button"
 						role="checkbox"
@@ -118,15 +133,18 @@
 						aria-label={task.completed ? `Mark "${task.title}" not done` : `Mark "${task.title}" done`}
 						onclick={() => toggle(task)}
 						disabled={busyId === task._id}
-						class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[3px] border transition-colors disabled:opacity-40"
-						class:border-signal={task.completed}
-						class:bg-signal={task.completed}
-						class:border-rule-strong={!task.completed}
-						class:hover:border-signal={!task.completed}
+						class="-ml-1.5 mt-0 flex size-6 shrink-0 items-center justify-center rounded disabled:opacity-40"
 					>
-						{#if task.completed}
-							<span class="text-[10px] leading-none text-paper" aria-hidden="true">✓</span>
-						{/if}
+						<span
+							class="flex size-4 items-center justify-center rounded-[3px] border transition-colors"
+							class:border-signal={task.completed}
+							class:bg-signal={task.completed}
+							class:border-rule-strong={!task.completed}
+						>
+							{#if task.completed}
+								<span class="text-[10px] leading-none text-paper" aria-hidden="true">✓</span>
+							{/if}
+						</span>
 					</button>
 					<span
 						class="min-w-0 flex-1 text-[15px] leading-7"
@@ -135,12 +153,19 @@
 					>
 						{task.title}
 					</span>
+					<!--
+						Visible by default, revealed-on-hover only from `md` up.
+						Mobile browsers do not apply `:hover`, so the previous
+						`opacity-0 group-hover:opacity-100` left a permanently
+						invisible - yet still hit-testable - 17px target at the end of
+						every row on a phone.
+					-->
 					<button
 						type="button"
 						onclick={() => remove(task)}
 						aria-label={`Delete task "${task.title}"`}
 						disabled={busyId === task._id}
-						class="shrink-0 text-ink-3 opacity-0 transition-opacity hover:text-bad focus:opacity-100 disabled:opacity-40 group-hover:opacity-100"
+						class="-mr-1.5 flex size-6 shrink-0 items-center justify-center rounded text-ink-3 transition-opacity hover:text-bad focus:opacity-100 disabled:opacity-40 md:opacity-0 md:group-hover:opacity-100"
 					>
 						×
 					</button>

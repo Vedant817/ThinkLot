@@ -31,7 +31,7 @@ export type QueryHandle<T> = {
 };
 
 export function watchQuery<T>(
-	client: BaseConvexClient,
+	client: BaseConvexClient | null,
 	reference: unknown,
 	args: ConvexArgs = {},
 	initial: T | undefined = undefined
@@ -39,6 +39,38 @@ export function watchQuery<T>(
 	const state = $state({ current: initial as T | undefined, loading: true, error: null as string | null });
 
 	const name = getFunctionName(reference as never);
+
+	/**
+	 * No client means no subscription, and that is a CONFIGURATION state, not a
+	 * crash.
+	 *
+	 * Every app page passes `convex.client!` in here. When `PUBLIC_CONVEX_URL`
+	 * is unset - a fresh clone, a CI build, an `adapter-node` deploy that forgot
+	 * the env var - `start()` leaves `client` null and that non-null assertion
+	 * becomes `TypeError: Cannot read properties of null (reading 'subscribe')`,
+	 * thrown from inside an `$effect`. Svelte 5 tears the tree down and the user
+	 * gets a blank page with the cause visible only in the console.
+	 *
+	 * Returning an errored handle instead lets the page render its normal error
+	 * banner and say what is actually wrong - recoverable, and honest about it.
+	 */
+	if (!client) {
+		state.loading = false;
+		state.error =
+			'ThinkLot is not connected: PUBLIC_CONVEX_URL is not set. Run `npx convex dev`, then restart.';
+		return {
+			get current() {
+				return state.current;
+			},
+			get loading() {
+				return state.loading;
+			},
+			get error() {
+				return state.error;
+			},
+			dispose: () => {}
+		};
+	}
 
 	const { queryToken, unsubscribe } = client.subscribe(name, args as Record<string, never>);
 
