@@ -1,0 +1,31 @@
+# Keep the build context small and stop local secrets reaching the daemon.
+#
+# .env.local MUST be excluded. PUBLIC_CONVEX_URL is passed as a build ARG and
+# every other env var lives on the Convex deployment, but shipping a developer's
+# local .env into an image is the kind of mistake that is only discovered later.
+
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+node_modules
+build
+.svelte-kit
+dist
+
+# Convex source is not part of the web image - it is deployed separately with
+# `npx convex deploy`. Sending it would only bloat the context.
+src/convex
+convex.json
+scripts
+
+# Editor and OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+*.log
+npm-debug.log*
