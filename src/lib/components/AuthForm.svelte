@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { convex } from '$lib/convex/client.svelte';
 
 	interface Props {
@@ -14,6 +15,16 @@
 	let problem = $state<string | null>(null);
 
 	const isSignup = $derived(mode === 'signup');
+	const destination = $derived.by(() => {
+		const next = page.url.searchParams.get('next');
+		if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/ideas';
+		const path = next.split(/[?#]/)[0];
+		return ['/ideas', '/board', '/review', '/archive'].some((route) => path === route || path.startsWith(route + '/')) ? next : '/ideas';
+	});
+	// Navigate only after the socket confirms auth, including restored sessions.
+	$effect(() => {
+		if (convex.auth.status === 'authenticated') void goto(destination, { replaceState: true });
+	});
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
@@ -38,9 +49,7 @@
 			} else {
 				await convex.signIn(email, password);
 			}
-			// `replaceState` so the back button does not return to the form the user
-			// just completed.
-			await goto('/ideas', { replaceState: true });
+			// The auth effect navigates after the socket handshake completes.
 		} catch (error) {
 			problem = error instanceof Error ? error.message : 'Something went wrong. Try again.';
 		} finally {

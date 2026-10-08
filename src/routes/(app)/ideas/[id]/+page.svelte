@@ -63,14 +63,16 @@
 	// leaves the NEXT idea rendering with the PREVIOUS idea's title and notes in
 	// the buffers - and the first blur then writes them onto the new idea. One
 	// "related ideas" link away from silently overwriting somebody's work.
+	let seededId: string | null = null;
 	$effect(() => {
 		const id = data.id;
-		void id; // the dependency; the buffer must follow the route, not the server
 		const incoming = handle?.current?.idea;
-		if (!incoming || incoming._id !== id) return;
+		if (!incoming || incoming._id !== id || seededId === id) return;
+		seededId = id;
 		title = incoming.title;
 		description = incoming.description ?? '';
 		problemText = incoming.problem ?? '';
+		tagDraft = '';
 	});
 
 	const score = $derived(idea ? priorityScore(idea) : null);

@@ -26,8 +26,7 @@
 		// so it could not do the job its comment claimed - all it did was fire on
 		// the app pages and bounce them. That made refresh, share and deep links
 		// to /ideas/<id> silently redirect to the list, losing the user's filters.
-		const next = page.url.searchParams.get('next');
-		const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/ideas';
+		const dest = page.url.pathname + page.url.search + page.url.hash;
 		void goto(`/login?next=${encodeURIComponent(dest)}`, { replaceState: true });
 	});
 

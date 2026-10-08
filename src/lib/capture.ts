@@ -48,7 +48,8 @@ export function parseCapture(raw: string, source: CaptureSource): ParsedCapture 
 	const { title: rawTitle, rest } = head.length > SOFT_TITLE_MAX ? splitAtSentence(head) : { title: head, rest: '' };
 
 	const title = clampTitle(rawTitle);
-	const description = [rest, tail].filter(Boolean).join('\n').trim() || undefined;
+	const overflow = rawTitle.trim().slice(TITLE_MAX);
+	const description = [overflow, rest, tail].filter(Boolean).join('\n').trim() || undefined;
 
 	return {
 		title,
