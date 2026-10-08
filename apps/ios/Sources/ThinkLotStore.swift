@@ -73,9 +73,14 @@ final class ThinkLotStore: ObservableObject {
     func signOut() async {
         guard !busy else { return }
         busy = true
-        cancelData(); signedIn = false
-        await client.logout()
-        busy = false
+        defer { busy = false }
+        do {
+            // The SDK's logout swallows provider errors. Check secure removal
+            // directly first so a Keychain failure cannot claim signed-out success.
+            try await provider.logout()
+            cancelData(); signedIn = false
+            await client.logout()
+        } catch { self.error = error.localizedDescription }
     }
     func cancelData() {
         generation += 1
