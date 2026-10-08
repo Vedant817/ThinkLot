@@ -4,6 +4,8 @@
 	import {
 		DRAFT_LIMIT,
 		looksDictated,
+	looksInjected,
+	extractTrigger,
 		parseCapture,
 		type CaptureSource
 	} from '$lib/capture';
@@ -59,6 +61,17 @@
 	let lastInputAt = 0;
 
 	/**
+	 * Length of the previous value, so a single event's insertion size is measurable.
+	 *
+	 * Timing alone cannot see Wispr Flow: it injects the finished text in ONE event,
+	 * which is one gap at best and zero below the six-sample floor. So a dictated idea
+	 * was split into title and body but its verbatim wording was DISCARDED - the one
+	 * input path this feature exists for was the one it failed on. Shape catches it.
+	 */
+	let previousLength = 0;
+	let injectedBlock = false;
+
+	/**
 	 * Text that has been sitting unsaved. Kept so a failed save or an accidental
 	 * navigation cannot lose a thought - the whole premise is that these get lost.
 	 */
@@ -66,6 +79,8 @@
 
 	function trackInput() {
 		const now = performance.now();
+		injectedBlock = looksInjected(Math.max(0, draft.length - previousLength));
+		previousLength = draft.length;
 		if (lastInputAt > 0) {
 			const gap = now - lastInputAt;
 			gaps.push(gap);
@@ -116,8 +131,13 @@
 		const raw = draft.trim();
 		if (!raw || saving) return;
 
-		const source: CaptureSource = explicitSource ?? (looksDictated(gaps) ? 'dictated' : 'typed');
-		const parsed = parseCapture(raw, source);
+		const source: CaptureSource =
+			explicitSource ?? (looksDictated(gaps) || injectedBlock ? 'dictated' : 'typed');
+
+		// A dictated thought usually also says WHY it occurred, and that is the part
+		// impossible to reconstruct weeks later. Accept it inline rather than asking.
+		const { text, trigger } = extractTrigger(raw);
+		const parsed = parseCapture(text, source);
 		if (!parsed) return;
 
 		saving = true;
@@ -141,6 +161,8 @@
 			draft = '';
 			gaps = [];
 			lastInputAt = 0;
+			previousLength = 0;
+			injectedBlock = false;
 			pending = null;
 			overflow = null;
 			storeDraft();

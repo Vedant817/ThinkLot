@@ -564,6 +564,30 @@ Check "an unrelated idea shortlists nothing" (@($dupOther.duplicates).Count -eq 
 $dupForeign = Call 'ideas:get' (@{ ideaId=$dupMain.value } | ConvertTo-Json -Compress) $tokenB 'query'
 Check "another user cannot see the shortlist" ($null -eq $dupForeign.value) "status=$($dupForeign.status)"
 
+Write-Host "`n== 11l. Wispr Flow capture, end to end ==" -ForegroundColor Cyan
+# The whole reason this exists: a dictated utterance arrives as ONE injected block, so
+# the timing heuristic alone cannot see it (one event is one sample, below the six-sample
+# floor) and the verbatim transcript used to be DISCARDED. Assert the real handler keeps
+# the transcript AND that the trigger survives alongside it.
+$wisprText = 'so I was walking with Priya and she said empty appointment slots are costing her money, we need a cancellation waitlist. trigger, walking home after the March postmortem'
+$wispr = Call 'ideas:capture' (@{ title='Cancellation waitlist'; description='we need a cancellation waitlist'; source='dictated'; transcript=$wisprText; trigger='walking home after the March postmortem' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "a Wispr-style injection is accepted" ($wispr.status -eq 'success') "-> $($wispr.errorMessage)"
+
+$wisprGet = (Call 'ideas:get' (@{ ideaId=$wispr.value } | ConvertTo-Json -Compress) $tokenA).value
+Check "the verbatim utterance is kept, not just the parsed title" ($wisprGet.idea.transcript -like '*walking with Priya*') "-> $(([string]$wisprGet.idea.transcript).Substring(0,[Math]::Min(80,([string]$wisprGet.idea.transcript).Length)))"
+Check "the spoken trigger is kept as its own field" ($wisprGet.idea.trigger -eq 'walking home after the March postmortem') "-> $($wisprGet.idea.trigger)"
+Check "a long dictated capture does not overflow the title cap" ($wisprGet.idea.title.Length -le 300) "len=$($wisprGet.idea.title.Length)"
+Check "the source is recorded as dictated" ($wisprGet.idea.source -eq 'dictated') "-> $($wisprGet.idea.source)"
+
+# The list must NOT ship the whole utterance - that is the read-limit rule.
+$wisprList = (Call 'ideas:list' (@{ limit=5 } | ConvertTo-Json -Compress) $tokenA).value
+$wisprRow = @($wisprList.ideas | Where-Object { $_._id -eq $wispr.value })[0]
+Check "the list ships a preview, not the transcript" ($null -ne $wisprRow.preview -and $null -eq $wisprRow.transcript) "preview=$($wisprRow.preview)"
+
+# And it must not leak across accounts.
+$wisprForeign = Call 'ideas:get' (@{ ideaId=$wispr.value } | ConvertTo-Json -Compress) $tokenB 'query'
+Check "the dictated capture is not readable by another user" ($null -eq $wisprForeign.value) "status=$($wisprForeign.status)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

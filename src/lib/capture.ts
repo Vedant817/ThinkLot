@@ -124,3 +124,91 @@ export function looksDictated(gapsMs: number[]): boolean {
 
 /** Drafts longer than this are almost certainly a note, not a title. */
 export const DRAFT_LIMIT = 4000;
+
+/**
+ * How many characters in ONE event means "injected", not "typed".
+ *
+ * The first version of this used 200, and a test fixture caught the flaw immediately:
+ * a real dictated sentence is often shorter than that, and Wispr injects a 25-character
+ * phrase exactly as readily as a 400-character paragraph. A bar set that high misses
+ * more dictated captures than it catches, which defeats the purpose.
+ *
+ * Set low enough that a short injection is caught, while still above anything a
+ * keyboard does on its own. Autocorrect inserting a completed word is a handful of
+ * characters; an IME committing a multi-character suggestion is well under twenty.
+ *
+ * 24 is about three words: comfortably above both, comfortably below a spoken phrase.
+ */
+const INJECTED_BLOCK_CHARS = 24;
+
+/**
+ * Did text arrive in one block rather than typed?
+ *
+ * `looksDictated` is a TIMING heuristic and it cannot see the case that matters most.
+ * Wispr Flow - and every paste, and the Android keyboard's own dictation - injects the
+ * finished text in a single input event. That is ONE event, so zero or one gap, and
+ * `looksDictated` returns false below its six-sample floor. The consequence was not
+ * cosmetic: `parseCapture` keeps a verbatim transcript only when the source is
+ * `dictated`, so a Wispr-captured idea had its title and body split correctly while its
+ * original wording was silently discarded. The one input path the feature exists for
+ * was the one it failed on.
+ *
+ * Shape catches what timing cannot: no human types three words between two events.
+ *
+ * Being wrong in this direction only means the verbatim copy of what the user already
+ * typed is also stored beside the parsed title and body - nothing is invented, and
+ * nothing is lost. Being wrong the other way loses the original.
+ */
+export function looksInjected(addedChars: number, threshold = INJECTED_BLOCK_CHARS): boolean {
+	return addedChars >= threshold;
+}
+
+/**
+ * The "… Trigger: …" convention, for dictated context.
+ *
+ * Someone dictating a thought usually also says WHY it occurred, because that is the
+ * part they cannot reconstruct later: "idea, a waitlist for cancellations. Trigger,
+ * walking with Priya, she said empty slots cost her money."
+ *
+ * Asking for that in a form field at capture time is the fastest way to lose the idea
+ * entirely. Accepting it inline costs nothing - the user already said it out loud.
+ *
+ * The rule is deliberately simple and deliberately narrow: a literal `trigger`
+ * followed by a colon, case-insensitive, taking the rest of that line. Anything more
+ * ambitious would start mangling dictated prose, and this text is the one thing the
+ * user cannot afford to have rewritten.
+ *
+ * Returns undefined when there is no such clause, so a caller can distinguish "no
+ * trigger" from "an empty trigger".
+ */
+export function extractTrigger(raw: string): { text: string; trigger: string | undefined } {
+	const trimmed = raw.trim();
+
+	// Only a single-line clause is read. Multi-line capture is usually structured
+	// notes, where the word "trigger" means something else entirely.
+	//
+	// Not an `^...$` multiline regex, which is what the first version used and which
+	// matched NOTHING - the clause is spoken mid-sentence ("… a waitlist. Trigger,
+	// walking with Priya …"), so it is never at the start of a line. Verified directly
+	// rather than assumed: the anchored form returns null on the very input it was
+	// written for.
+	const match = /(?:^|[.!?\n]\s*|,\s+)[ \t]*trigger\s*[:：,]\s*(.+)$/i.exec(trimmed);
+	if (!match) return { text: trimmed, trigger: undefined };
+
+	const trigger = match[1].trim();
+
+	// A colon with nothing after it is not a trigger, it is a typo.
+	if (!trigger) return { text: trimmed, trigger: undefined };
+
+	// Remove the clause from the body so it is not stored twice, and so the parsed
+	// title is not a title about the trigger.
+	//
+	// Sliced by index rather than `.replace(match[0], '')`: the leading context group
+	// means `match[0]` starts at the preceding sentence boundary, so a replace would
+	// also swallow the full stop that ends the idea's own sentence. Removing that
+	// punctuation left `parseCapture` cutting the title at "money" instead of at
+	// "waitlist", because there was no longer a sentence boundary to find.
+	const text = (trimmed.slice(0, match.index) + trimmed.slice(match.index + match[0].length)).trim();
+
+	return { text: text || trimmed, trigger };
+}

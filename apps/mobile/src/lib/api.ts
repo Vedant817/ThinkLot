@@ -29,3 +29,29 @@ export { maturityOf, maturityLabel } from "../../../../src/lib/maturity";
 export type { Maturity, MaturityStage } from "../../../../src/lib/maturity";
 export { describeEvent } from "../../../../src/lib/timeline";
 export { relativeDay } from "../../../../src/lib/dates";
+/*
+ * The capture pipeline, shared rather than reimplemented.
+ *
+ * This is the Wispr Flow path. Wispr - and every system-wide dictation tool -
+ * injects finished text into the focused field in one shot, so an idea dictated on
+ * the move arrives as one long run-on paragraph. `parseCapture` splits that into a
+ * title and a body WITHOUT discarding the tail, and keeps the utterance verbatim as
+ * a transcript when it was dictated.
+ *
+ * Before this, the Android client sent the entire draft as the title. The server caps
+ * a title at 300 characters, so anything longer - which is exactly what a dictated
+ * idea is - was rejected outright and the thought was lost. There is no second copy
+ * of the parser here because that would be a second thing to drift.
+ */
+export {
+  parseCapture,
+  looksDictated,
+  looksInjected,
+  extractTrigger,
+  TITLE_MAX,
+  DRAFT_LIMIT,
+} from "../../../../src/lib/capture";
+export type {
+  CaptureSource,
+  ParsedCapture,
+} from "../../../../src/lib/capture";

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseCapture } from '../src/lib/capture';
+import { parseCapture, looksDictated, looksInjected, extractTrigger } from '../src/lib/capture';
 import { reconcile, textPatch } from '../apps/mobile/src/lib/edit-buffer';
 
 for (const raw of ['x'.repeat(350) + '. tail sentence', 'x'.repeat(350) + '\nsecond line', 'x'.repeat(500), 'Ok. ' + 'word '.repeat(100)]) {
@@ -61,4 +61,99 @@ const spaced = reconcile(reconcile(null, seeded), seeded);
 spaced.values.outcome = '   ';
 assert.deepEqual(textPatch(spaced), { outcome: null }, 'a whitespace-only edit clears rather than saving blank padding');
 
-console.log('PASS: capture preservation, concurrent mobile editor, and spec-field clear regressions (no database operations).');
+// ---------------------------------------------------------------------------
+// WISPR FLOW: the case the timing heuristic structurally cannot see.
+//
+// Wispr injects the finished utterance in ONE input event. That is one gap at best,
+// so `looksDictated` refuses to guess and returns false. The consequence was not
+// cosmetic: `parseCapture` keeps a verbatim transcript ONLY when the source is
+// 'dictated', so a Wispr-captured idea had its title and body split correctly while
+// its original wording was silently discarded - the one input path the transcript
+// field exists for was the one it failed on.
+// ---------------------------------------------------------------------------
+{
+  // Timing genuinely cannot see it. This is the whole reason shape detection exists.
+  assert.equal(looksDictated([30]), false, 'one gap is not enough evidence');
+  assert.equal(looksDictated([]), false);
+
+  // Shape does see it: nobody types three words between two events.
+  assert.equal(looksInjected(240), true, 'a block injection is detected');
+  assert.equal(looksInjected(24), true, 'at the threshold exactly');
+  assert.equal(looksInjected(23), false);
+
+  // A SHORT Wispr injection must be caught too. The first threshold of 200 missed
+  // this case entirely, and a dictated sentence is often shorter than 200 characters.
+  const short = parseCapture('waitlist for cancellations', looksInjected(28) ? 'dictated' : 'typed');
+  assert.equal(short.source, 'dictated', 'a 28-character injection is still an injection');
+  assert.equal(short.transcript, 'waitlist for cancellations');
+
+  // And the consequence is fixed: with the source correctly 'dictated', the verbatim
+  // utterance is kept.
+  const utterance =
+    'so I was walking with Priya and she said empty appointment slots are costing her money, ' +
+    'we should have a cancellation waitlist that fills them automatically';
+  const detected = looksInjected(utterance.length);
+  assert.equal(detected, true, 'Wispr injects the whole utterance in one go');
+  const parsed = parseCapture(utterance, detected ? 'dictated' : 'typed');
+  assert.equal(parsed.source, 'dictated');
+  assert.equal(parsed.transcript, utterance.trim(), 'the verbatim wording survives');
+  assert.ok((parsed.title + (parsed.description ?? '')).length > 0);
+}
+
+// Being wrong in the risky direction is harmless, which is why the bar is high.
+{
+  // A pasted link or a short phrase is not a human typist either, but if the
+  // heuristic fires the only consequence is a verbatim copy of what the user typed
+  // being stored alongside the parsed title - nothing is invented and none is lost.
+  assert.equal(looksInjected(12), false, 'ordinary typing is not an injection');
+  assert.equal(looksInjected(0), false, 'deleting text is not an injection');
+  assert.equal(looksInjected(-5), false, 'and neither is a negative delta');
+}
+
+// ---------------------------------------------------------------------------
+// INLINE CONTEXT: "… Trigger: …" spoken out loud.
+// ---------------------------------------------------------------------------
+{
+  // A trailing full stop belongs to the trigger clause itself - it is the end of what
+  // the user said. Only strip a terminal comma, which is what a spoken "trigger," is
+  // followed by.
+  const spoken = 'idea, a cancellation waitlist. trigger, walking with Priya, she said empty slots cost her money.';
+  const { text, trigger } = extractTrigger(spoken);
+  assert.equal(trigger, 'walking with Priya, she said empty slots cost her money.', 'the trigger keeps its own punctuation');
+  assert.ok(!/trigger/i.test(text), 'the clause is not left in the body to be stored twice');
+  assert.match(text, /cancellation waitlist/, 'and the idea itself survives');
+  // Pinned because the earlier version stripped the full stop, and with no sentence
+  // boundary left in the body `parseCapture` then cut the title at "money" instead of
+  // at "waitlist" - a title that named the wrong half of the idea.
+  assert.equal(
+    parseCapture(text, 'dictated').title,
+    'idea, a cancellation waitlist',
+    'removing the trigger must leave the idea a clean, parsable sentence'
+  );
+
+  // A spoken "trigger," IS followed by a comma, and that comma belongs to the clause.
+  const spokenComma = 'idea, a cancellation waitlist. trigger, walking with Priya';
+  assert.equal(extractTrigger(spokenComma).trigger, 'walking with Priya');
+
+  // Case and a full-width colon, because dictated text is punctuated by ear.
+  assert.equal(extractTrigger('thing. Trigger: raining').trigger, 'raining');
+  assert.equal(extractTrigger('thing. trigger：raining').trigger, 'raining');
+  assert.equal(extractTrigger('thing. TRIGGER: raining').trigger, 'raining');
+
+  // Nothing to extract means undefined, so a caller can tell "no trigger" from
+  // "an empty one".
+  assert.equal(extractTrigger('just a plain idea').trigger, undefined);
+  assert.equal(extractTrigger('just a plain idea').text, 'just a plain idea');
+
+  // A stray colon is a typo, not a label.
+  assert.equal(extractTrigger('idea trigger: ').trigger, undefined);
+
+  // The word appearing mid-thought is content, not a label.
+  assert.equal(
+    extractTrigger('the trigger for the pipeline failed and nobody noticed').trigger,
+    undefined,
+    'a trigger word in the middle of a sentence is not a trigger field'
+  );
+}
+
+console.log('PASS: capture preservation, concurrent mobile editor, spec-field clear, Wispr block injection and inline trigger context (no database operations).');
