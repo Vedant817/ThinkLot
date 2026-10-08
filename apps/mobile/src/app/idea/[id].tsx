@@ -42,6 +42,9 @@ export default function IdeaDetail() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [problem, setProblem] = useState("");
+  const [audience, setAudience] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [trigger, setTrigger] = useState("");
   const [tag, setTag] = useState("");
   const [task, setTask] = useState("");
   const [editingTask, setEditingTask] = useState<Id<"ideaTasks"> | null>(null);
@@ -53,6 +56,9 @@ export default function IdeaDetail() {
     title: "",
     description: "",
     problem: "",
+    audience: "",
+    outcome: "",
+    trigger: "",
   });
   const navigation = useNavigation();
   usePreventRemove(dirty, ({ data }) => {
@@ -81,6 +87,9 @@ export default function IdeaDetail() {
       setTitle(idea.title);
       setDescription(idea.description ?? "");
       setProblem(idea.problem ?? "");
+      setAudience(idea.audience ?? "");
+      setOutcome(idea.outcome ?? "");
+      setTrigger(idea.trigger ?? "");
       setDirty(false);
       setTag("");
       setTask("");
@@ -96,6 +105,15 @@ export default function IdeaDetail() {
       );
       setProblem((current) =>
         current === old.problem ? next.problem : current,
+      );
+      setAudience((current) =>
+        current === old.audience ? next.audience : current,
+      );
+      setOutcome((current) =>
+        current === old.outcome ? next.outcome : current,
+      );
+      setTrigger((current) =>
+        current === old.trigger ? next.trigger : current,
       );
       baseline.current = next;
     }
@@ -196,6 +214,45 @@ export default function IdeaDetail() {
                 setDirty(true);
               }}
             />
+            {/*
+              The three fields the product spec asks for in its Inbox model,
+              which were missing from this screen entirely. They sit with the
+              problem statement rather than further down because the four of them
+              together are what separate an actionable idea from a sentence.
+            */}
+            <Field
+              label="Who is it for"
+              value={audience}
+              multiline
+              maxLength={20000}
+              editable={!busy}
+              onChangeText={(v) => {
+                setAudience(v);
+                setDirty(true);
+              }}
+            />
+            <Field
+              label="Expected outcome"
+              value={outcome}
+              multiline
+              maxLength={20000}
+              editable={!busy}
+              onChangeText={(v) => {
+                setOutcome(v);
+                setDirty(true);
+              }}
+            />
+            <Field
+              label="Source / trigger"
+              value={trigger}
+              multiline
+              maxLength={20000}
+              editable={!busy}
+              onChangeText={(v) => {
+                setTrigger(v);
+                setDirty(true);
+              }}
+            />
             <Button
               title={busy ? "Saving…" : "Save text"}
               primary
@@ -207,7 +264,14 @@ export default function IdeaDetail() {
                       ideaId: idea._id,
                       ...textPatch({
                         id: idea._id,
-                        values: { title, description, problem },
+                        values: {
+                          title,
+                          description,
+                          problem,
+                          audience,
+                          outcome,
+                          trigger,
+                        },
                         baseline: baseline.current,
                       }),
                     }),

@@ -41,15 +41,29 @@ Inbox → Parked → Reviewing → Ready → Building → Done → Archived
 Drop ideas here in 30 seconds. You can make them "beautiful" later.
 
 ```
-- [ ] Idea:
-  - One-liner:
-  - Problem:
-  - Who is it for:
-  - Expected outcome:
-  - Notes:
-  - Tags:
-  - Source / trigger:
+- [x] Idea (title):
+- [x] One-liner:  — the title IS the one-liner; there is no separate field
+- [x] Problem:
+- [x] Who is it for:
+- [x] Expected outcome:
+- [x] Notes:
+- [x] Tags:
+- [x] Source / trigger:
 ```
+
+> **Three of these did not exist until an audit against this document.**
+> "Who is it for", "Expected outcome" and "Source / trigger" were listed here for
+> the whole project and were absent from the schema, the mutations and every
+> screen — while the roadmap showed all eight weeks complete. They are built now.
+>
+> "Source / trigger" is *not* the `source` column that did exist. That one records
+> whether text arrived by voice, which answers a different question from what
+> prompted the idea. The similar names are what let the gap survive.
+>
+> The lesson recorded here rather than left implicit: **the roadmap is checked off
+> by week, which is too coarse to catch a field that was never built.** The
+> per-item acceptance criteria in 5.1 are the ones that should be trusted, and they
+> were left unchecked precisely because they were never verified.
 
 ## 3. Roadmap (progress tracker)
 
@@ -117,25 +131,33 @@ Drop ideas here in 30 seconds. You can make them "beautiful" later.
 
 ## 3.1 What "done" means here, and what is still open
 
-All eight weeks are implemented. None of them has been verified by a person
-looking at the screen, because no browser has ever been attached to the
-development session for this project. That distinction matters more than the
-checkboxes above, so it is recorded here rather than left to be discovered:
+All eight weeks are implemented. **That statement is now qualified**, because the
+first version of it was wrong: an audit against this document found four things
+ticked off and never built (three Inbox fields in section 2, and the Dashboard in
+section 6). Week-level checkboxes are too coarse to be trustworthy on their own.
+
+What follows is the honest position.
 
 **Verified by execution**
-- Backend: `npm run verify:e2e` — 117 live checks against the dev deployment,
+- Backend: `npm run verify:e2e` — 128 live checks against the dev deployment,
   including every negative authorization case. `svelte-check` clean.
 - Capture/editor preservation: `scripts/verify-capture-regressions.ts`, offline.
 - Keyboard shortcuts: `npm run verify:shortcuts` — 36 checks.
 - React Native client: typecheck and lint clean, Expo Doctor 21/21, Android and
   iOS Hermes exports pass. Exports prove bundling, not native rendering.
+- **Android on device** (API 36, 1080x2400): a release APK was built with real
+  device ABIs, installed, and the signup → capture → LOT-0001 journey was walked.
+  Verified on screen: light and dark palettes, 1.3x system font scale, and a
+  360x640dp small phone. Four defects were found this way and fixed.
 - Swift client: a static contract check over 16 backend functions. Compilation,
   simulator and device testing need Apple SDKs and are unverified on this host.
 
 **Not verified — needs a browser or a device**
-- Any rendered UI: layout, CSS, contrast as painted, focus rings, drag-and-drop
-  on a touchscreen.
-- The Android on-device journey and the entire iOS journey.
+- **Any rendered web UI.** No browser has ever been attached to this session, so
+  every web claim above is compiled output, HTTP responses or pure-function tests.
+  This is the largest remaining gap and it is not closeable from the toolchain.
+- The new Dashboard and the three spec fields, as rendered pixels.
+- The entire iOS journey.
 - A production deployment of any kind.
 
 **Known and accepted, documented rather than hidden**
@@ -158,13 +180,20 @@ checkboxes above, so it is recorded here rather than left to be discovered:
 - `impact_score`, `effort_score`, `confidence_score`
 - `created_at`, `updated_at`, `revisit_date`
 - `archived`, `favorite`
+- `audience`, `outcome`, `trigger` — the section 2 fields, added late
 
 **Acceptance criteria (Phase 1)**
 
-- [ ] Create, edit, delete an idea
-- [ ] Assign tags
-- [ ] Set status (Parked / Reviewing / Ready)
-- [ ] Persist locally across refresh
+- [x] Create, edit, delete an idea
+- [x] Assign tags
+- [x] Set status (Parked / Reviewing / Ready)
+- [x] Persist locally across refresh
+
+> These were left unchecked for most of the project even though the roadmap said
+> every week was done. They are now verified against the live deployment by
+> `verify:e2e`, including the negative authorization cases. Note that "persist
+> locally" is satisfied by Convex rather than browser storage — the data survives
+> a refresh because it was never in the browser.
 
 ### 5.2 Views
 
@@ -223,6 +252,11 @@ completed
 - Sidebar: nav
 - Main panel: list/board
 - Right panel: idea details + score + notes
+
+> The **Dashboard did not exist** for most of the project, despite being listed
+> above as the first navigation item — and the landing page already linked to it
+> as "Login to dashboard", so that link was a live 404. It is built now, and signing
+> in lands on it.
 
 ## 7. Folder structure
 
