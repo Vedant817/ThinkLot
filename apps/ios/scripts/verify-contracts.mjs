@@ -23,7 +23,13 @@ assert.deepEqual([...functions].sort(), [
 assert.match(source, /Double\(days\)/);
 assert.match(source, /yielding: IdeaDetail\?\.self/);
 assert.match(source, /kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly/);
-assert.match(source, /"impact": scored \? impact : nil/);
-assert.match(source, /"revisitAt": hasRevisit \? .*rounded\(\) : nil/);
+assert.match(source, /args\.updateValue\(scored \? value : nil, forKey: key\)/);
+assert.match(source, /revisitAt: hasRevisit \? .*rounded\(\) : nil/);
+assert.match(source, /@State private var baseline: Idea/);
+assert.match(source, /if description != \(baseline\.description \?\? ""\)/);
+for (const arg of ['archivedOnly', 'favoriteOnly', 'sortPriority']) {
+  assert.match(source, new RegExp(`"${arg}":`));
+  assert.match(readFileSync(path.join(root, 'src/convex/ideas.ts'), 'utf8'), new RegExp(`${arg}: v.optional\\(v.boolean\\(\\)\\)`));
+}
 assert.match(readFileSync(path.join(ios, 'project.yml'), 'utf8'), /exactVersion: 0\.8\.1/);
 console.log(`Verified ${functions.length} existing Convex function contracts; Swift compilation remains Mac-only.`);

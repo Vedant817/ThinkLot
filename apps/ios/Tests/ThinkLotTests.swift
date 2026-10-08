@@ -36,6 +36,24 @@ final class ThinkLotTests: XCTestCase {
             XCTAssertThrowsError(try Deployment.validate(invalid))
         }
     }
+    func testEditorOmitsUntouchedFieldsAndPreservesExplicitClear() throws {
+        let json = """
+        {"_id":"idea-a","seq":1,"title":"Original","description":"Notes","status":"inbox","tags":["swift"],"impact":8,"favorite":false,"archived":false,"createdAt":0,"updatedAt":0}
+        """
+        let baseline = try JSONDecoder().decode(Idea.self, from: Data(json.utf8))
+        let untouched = EditorPatch.make(baseline: baseline, title: "Original", description: "Notes", problem: "", tags: "swift",
+            scored: true, impact: 8, effort: 5, confidence: 5, revisitAt: nil)
+        XCTAssertEqual(Set(untouched.keys), ["ideaId"])
+        let changed = EditorPatch.make(baseline: baseline, title: "Original", description: "", problem: "New problem", tags: "swift",
+            scored: true, impact: 8, effort: 5, confidence: 5, revisitAt: nil)
+        XCTAssertEqual(Set(changed.keys), ["ideaId", "description", "problem"])
+        let data = Data(try changed.convexEncode().utf8)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertTrue(object["description"] is NSNull)
+        XCTAssertEqual(object["problem"] as? String, "New problem")
+        XCTAssertNil(object["impact"])
+        XCTAssertNil(object["effort"])
+    }
     func testRefreshRotatesPersistedTokenAndConcurrentCallsShareRequest() async throws {
         let vault = MemoryVault(SessionTokens(token: "old", refreshToken: "refresh-old"))
         let transport = TestTransport()

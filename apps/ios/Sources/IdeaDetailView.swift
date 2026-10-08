@@ -9,7 +9,7 @@ struct IdeaDetailView: View {
     @State private var detail: IdeaDetail?
     @State private var unavailable = false
     @State private var error: String?
-    @State private var editing = false
+    @State private var editorIdea: Idea?
     @State private var deleting = false
     @State private var taskTitle = ""
     @State private var editTask: IdeaTask?
@@ -26,7 +26,7 @@ struct IdeaDetailView: View {
                         Text(detail.idea.tags.joined(separator: " · ")).foregroundStyle(.secondary)
                         if let priority = detail.idea.priority { Text("Priority \(priority, specifier: "%.1f")") }
                         if let revisit = detail.idea.revisitAt { Text("Revisit \(Date(timeIntervalSince1970: revisit / 1000).formatted(date: .abbreviated, time: .omitted))") }
-                        Button("Edit details and scoring") { editing = true }
+                        Button("Edit details and scoring") { editorIdea = detail.idea }
                     }
                     Section("Lifecycle") {
                         Menu("Stage: \(detail.idea.status.label)") {
@@ -86,7 +86,7 @@ struct IdeaDetailView: View {
                 }
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
-        .sheet(isPresented: $editing) { if let detail { IdeaEditor(idea: detail.idea).environmentObject(store) } }
+        .sheet(item: $editorIdea) { idea in IdeaEditor(idea: idea).environmentObject(store) }
         .alert("Rename task", isPresented: Binding(get: { editTask != nil }, set: { if !$0 { editTask = nil } })) {
             TextField("Task", text: $editedTaskTitle)
             Button("Save") {
@@ -105,6 +105,7 @@ struct IdeaEditor: View {
     @EnvironmentObject private var store: ThinkLotStore
     @Environment(\.dismiss) private var dismiss
     let idea: Idea
+    @State private var baseline: Idea
     @State private var title: String
     @State private var description: String
     @State private var problem: String
@@ -117,6 +118,7 @@ struct IdeaEditor: View {
     @State private var hasRevisit: Bool
     init(idea: Idea) {
         self.idea = idea
+        _baseline = State(initialValue: idea)
         _title = State(initialValue: idea.title)
         _description = State(initialValue: idea.description ?? "")
         _problem = State(initialValue: idea.problem ?? "")
@@ -124,7 +126,7 @@ struct IdeaEditor: View {
         _impact = State(initialValue: idea.impact ?? 5)
         _effort = State(initialValue: idea.effort ?? 5)
         _confidence = State(initialValue: idea.confidence ?? 5)
-        _scored = State(initialValue: idea.priority != nil)
+        _scored = State(initialValue: idea.impact != nil || idea.effort != nil || idea.confidence != nil)
         _revisit = State(initialValue: Date(timeIntervalSince1970: (idea.revisitAt ?? Date().timeIntervalSince1970 * 1000) / 1000))
         _hasRevisit = State(initialValue: idea.revisitAt != nil)
     }
@@ -157,20 +159,36 @@ struct IdeaEditor: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task {
-                            let tagValues = tags.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } as [ConvexEncodable?]
-                            let args: [String: ConvexEncodable?] = [
-                                "ideaId": idea.id, "title": title,
-                                "description": description.isEmpty ? nil : description,
-                                "problem": problem.isEmpty ? nil : problem, "tags": tagValues,
-                                "impact": scored ? impact : nil, "effort": scored ? effort : nil,
-                                "confidence": scored ? confidence : nil,
-                                "revisitAt": hasRevisit ? (revisit.timeIntervalSince1970 * 1000).rounded() : nil
-                            ]
+                            let args = EditorPatch.make(baseline: baseline, title: title, description: description, problem: problem,
+                                tags: tags, scored: scored, impact: impact, effort: effort, confidence: confidence,
+                                revisitAt: hasRevisit ? (revisit.timeIntervalSince1970 * 1000).rounded() : nil)
+                            if args.count == 1 { dismiss(); return }
                             if await store.mutate("ideas:update", args) { dismiss() }
                         }
                     }.disabled(store.busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || description.count > 20000 || problem.count > 20000)
                 }
             }
         }
+    }
+}
+
+enum EditorPatch {
+    static func make(baseline: Idea, title: String, description: String, problem: String, tags: String,
+                     scored: Bool, impact: Double, effort: Double, confidence: Double, revisitAt: Double?) -> [String: ConvexEncodable?] {
+        var args: [String: ConvexEncodable?] = ["ideaId": baseline.id]
+        if title != baseline.title { args["title"] = title }
+        if description != (baseline.description ?? "") { args.updateValue(description.isEmpty ? nil : description, forKey: "description") }
+        if problem != (baseline.problem ?? "") { args.updateValue(problem.isEmpty ? nil : problem, forKey: "problem") }
+        if tags != baseline.tags.joined(separator: ", ") {
+            args["tags"] = tags.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } as [ConvexEncodable?]
+        }
+        let originallyScored = baseline.impact != nil || baseline.effort != nil || baseline.confidence != nil
+        for (key, old, value) in [("impact", baseline.impact, impact), ("effort", baseline.effort, effort), ("confidence", baseline.confidence, confidence)] {
+            if scored != originallyScored || (scored && value != (old ?? 5)) {
+                args.updateValue(scored ? value : nil, forKey: key)
+            }
+        }
+        if revisitAt != baseline.revisitAt { args.updateValue(revisitAt, forKey: "revisitAt") }
+        return args
     }
 }

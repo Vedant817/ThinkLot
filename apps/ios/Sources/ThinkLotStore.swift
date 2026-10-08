@@ -42,12 +42,8 @@ final class ThinkLotStore: ObservableObject {
             self?.connection = state == .connected ? "Connected" : "Reconnecting"
         }.store(in: &subscriptions)
     }
-    var filterKey: String { "\(search)|\(status?.rawValue ?? "")|\(tag)|\(archived)" }
-    var visibleIdeas: [Idea] {
-        var ideas = (page?.ideas ?? []).filter { $0.archived == archived && (!favorites || $0.favorite) }
-        if prioritySort { ideas.sort { ($0.priority ?? -1) > ($1.priority ?? -1) } }
-        return ideas
-    }
+    var filterKey: String { "\(search)|\(status?.rawValue ?? "")|\(tag)|\(archived)|\(favorites)|\(prioritySort)" }
+    var visibleIdeas: [Idea] { page?.ideas ?? [] }
     func restore() async {
         guard !busy, !restoring else { return }
         restoring = true
@@ -92,7 +88,10 @@ final class ThinkLotStore: ObservableObject {
         generation += 1
         let current = generation
         page = nil; review = nil
-        var args: [String: ConvexEncodable?] = ["includeArchived": archived, "search": search]
+        var args: [String: ConvexEncodable?] = [
+            "archivedOnly": archived, "favoriteOnly": favorites,
+            "sortPriority": prioritySort, "search": search
+        ]
         if let status { args["status"] = status.rawValue }
         if !tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args["tags"] = [tag.lowercased()] as [ConvexEncodable?]

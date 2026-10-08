@@ -57,7 +57,7 @@ struct LotView: View {
                 Toggle("Archive", isOn: $store.archived)
                 Toggle("Favorites", isOn: $store.favorites)
             }
-            Toggle("Sort loaded ideas by priority", isOn: $store.prioritySort).font(.caption)
+            Toggle("Sort by priority", isOn: $store.prioritySort).font(.caption)
         }.padding(.horizontal).padding(.bottom)
     }
     private var list: some View {
