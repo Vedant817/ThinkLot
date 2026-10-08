@@ -42,7 +42,10 @@ export type Idea = {
 };
 
 export type IdeaStats = {
+	/** Every idea ever parked, archived included. */
 	total: number;
+	/** Still in the lot. `total` minus `archived`. */
+	active: number;
 	archived: number;
 	byStatus: Record<string, number>;
 	unscored: number;

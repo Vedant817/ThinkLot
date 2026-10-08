@@ -430,6 +430,26 @@ Check "the list projection carries the trigger" ($listProj.trigger -eq 'a conver
 $listOutcome = Call 'ideas:list' (@{ search='no more lost notes' } | ConvertTo-Json -Compress) $tokenA
 Check "search matches the outcome field" (@($listOutcome.value.ideas | Where-Object { $_._id -eq $specId.value }).Count -eq 1) "status=$($listOutcome.status)"
 
+Write-Host "`n== 11h. Dashboard stats reconcile ==" -ForegroundColor Cyan
+# The dashboard's two halves are drawn from one stats payload, so the counts have
+# to agree with each other. `total` counts archived ideas while byStatus,
+# unscored and favorites count active ones only, which is why "active" was added
+# to the payload: without it the header claimed more parked ideas than the
+# pipeline below it could account for, by exactly the archived count.
+$dashId = Call 'ideas:capture' (@{ title='dashboard stats probe' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'ideas:setArchived' (@{ ideaId=$dashId.value; archived=$true } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$dashStats = (Call 'ideas:stats' '{}' $tokenA).value
+$dashSum = 0
+if ($dashStats.byStatus) { $dashStats.byStatus.PSObject.Properties | ForEach-Object { $dashSum += [int]$_.Value } }
+Check "active plus archived equals total" ($dashStats.active + $dashStats.archived -eq $dashStats.total) "active=$($dashStats.active) archived=$($dashStats.archived) total=$($dashStats.total)"
+Check "the pipeline rows add up to active" ($dashSum -eq $dashStats.active) "byStatus sums to $dashSum, active=$($dashStats.active)"
+Check "an archived idea is counted in archived, not active" ($dashStats.archived -ge 1) "archived=$($dashStats.archived)"
+
+# The top-ideas ranking must exclude archived ideas, or the dashboard recommends
+# work the user has already put away.
+$dashList = Call 'ideas:list' (@{ sortPriority=$true; limit=20 } | ConvertTo-Json -Compress) $tokenA
+Check "the ranking excludes archived ideas" (@($dashList.value.ideas | Where-Object { $_._id -eq $dashId.value }).Count -eq 0) "archived idea present in top ranking"
+
 Write-Host "`n== 15. Brute-force throttle (auth:signIn) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

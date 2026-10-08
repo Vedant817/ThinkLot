@@ -13,6 +13,17 @@ export type Scored = {
 	confidence?: number;
 };
 
+/**
+ * The highest priority score the inputs can produce: 10 x 10 / 1.
+ *
+ * Exported because anything that draws the score as a LENGTH needs a scale, and
+ * the scale was being guessed at each call site - which is how the dashboard
+ * came to divide by 40 and render a maximum-scoring idea at 62% of the bar.
+ * `displayScore` already treats 100 as the top of the range; this is that same
+ * fact, named once.
+ */
+export const MAX_SCORE = 100;
+
 export type ScoreInput = Scored & { favorite?: boolean; archived?: boolean };
 
 export function priorityScore(idea: Scored): number | null {

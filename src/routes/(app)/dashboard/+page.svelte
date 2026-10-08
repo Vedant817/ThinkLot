@@ -4,7 +4,7 @@
 	import QueryError from '$lib/components/QueryError.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { api } from '../../../convex/_generated/api';
-	import { displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
+	import { displayScore, lotPlate, priorityScore, scoreBand, MAX_SCORE } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	/**
@@ -59,7 +59,17 @@
 	const stats = $derived(statsHandle?.current);
 	const top = $derived(topHandle?.current?.ideas ?? []);
 
-	const busy = $derived(statsHandle?.loading || topHandle?.loading);
+	/**
+	 * Busy until both queries have actually reported.
+	 *
+	 * The handles are assigned inside `$effect`, which runs after the first
+	 * paint, so on that paint they are null. Testing only `.loading` therefore
+	 * made `busy` undefined, which is falsy - and the dashboard rendered its
+	 * empty state, telling users with a full ranking of scored ideas that
+	 * "nothing scored yet". A slow load that admits it is slow is fine; one that
+	 * asserts a falsehood is not.
+	 */
+	const busy = $derived(!statsHandle || !topHandle || statsHandle.loading || topHandle.loading);
 
 	/** Scored ideas only - "top ideas" among unscored ones is meaningless. */
 	const ranked = $derived(top.filter((idea) => priorityScore(idea) !== null));
@@ -83,7 +93,12 @@
 	<div class="flex flex-wrap items-baseline justify-between gap-3 border-b border-rule pb-4">
 		<p class="font-mono text-sm font-bold tracking-tight">Dashboard</p>
 		<p class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
-			{stats?.total ?? 0} {(stats?.total ?? 0) === 1 ? 'idea' : 'ideas'} parked
+			<!--
+				`active`, not `total`. The pipeline rows below are all active-only, so
+				counting archived ideas here made the two halves of this screen
+				disagree by exactly the number of archived ideas.
+			-->
+			{stats?.active ?? 0} {(stats?.active ?? 0) === 1 ? 'idea' : 'ideas'} parked
 		</p>
 	</div>
 
@@ -92,7 +107,7 @@
 
 	<!-- Counts -->
 	<div class="rule-y mt-4 overflow-hidden rounded-lg border border-rule bg-paper">
-		{#each [['Parked', stats?.total ?? 0], ['Unscored', stats?.unscored ?? 0], ['Starred', stats?.favorites ?? 0], ['Archived', stats?.archived ?? 0]] as [label, value] (label)}
+		{#each [['Parked', stats?.active ?? 0], ['Unscored', stats?.unscored ?? 0], ['Starred', stats?.favorites ?? 0], ['Archived', stats?.archived ?? 0]] as [label, value] (label)}
 			<div class="flex items-baseline justify-between gap-4 px-3 py-2.5">
 				<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
 					{label}
@@ -187,12 +202,18 @@
 							{/if}
 						</div>
 					</div>
-					<!-- Score band as a rule whose length encodes the score. -->
+					<!--
+						Score as a rule whose LENGTH encodes the score.
+
+						The track is deliberately neutral. It was the band's own colour,
+						which made the fill invisible against it: every bar read as one
+						solid block and the length encoded nothing at all.
+					-->
 					<span class="mt-1 hidden w-16 shrink-0 sm:block">
-						<span class="block h-1.5 rounded-full {BAND_BAR[band]}">
+						<span class="block h-1.5 rounded-full bg-rule">
 							<span
 								class="block h-full rounded-full {BAND_BAR[band]}"
-								style={`width:${Math.min(100, ((score ?? 0) / 40) * 100)}%`}
+								style={`width:${Math.max(2, Math.min(100, ((score ?? 0) / MAX_SCORE) * 100))}%`}
 							></span>
 						</span>
 					</span>

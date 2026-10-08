@@ -591,6 +591,18 @@ export const stats = query({
 
 		return {
 			total: ideas.length,
+			/**
+			 * How many ideas are actually IN the lot, i.e. excluding archived.
+			 *
+			 * `total` counts archived ideas, while byStatus / unscored / favorites
+			 * below count active ones only. That is defensible per-field but it
+			 * made the dashboard say "12 ideas parked" directly above a pipeline
+			 * that added up to 10, with nothing on screen to reconcile the two.
+			 * Rather than change `total` - which other screens already read, and
+			 * which legitimately means "every idea I have ever parked" - the
+			 * number the label "parked" actually refers to is now explicit.
+			 */
+			active: active.length,
 			archived: ideas.length - active.length,
 			byStatus: active.reduce<Record<string, number>>((acc, idea) => {
 				acc[idea.status] = (acc[idea.status] ?? 0) + 1;
