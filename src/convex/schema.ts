@@ -100,6 +100,14 @@ const schema = defineSchema({
 		 * is a true capture order even when many ideas land in the same second.
 		 */
 		seq: v.number(),
+		/**
+		 * `-seq`, so an ascending index range is newest-first.
+		 *
+		 * Optional rather than required because documents written before this field
+		 * existed do not have it, and making it required would refuse every one of
+		 * them. The list falls back to sorting by `seq` when it is missing.
+		 */
+		seqDesc: v.optional(v.number()),
 
 		title: v.string(),
 		description: v.optional(v.string()),
@@ -146,12 +154,49 @@ const schema = defineSchema({
 		.index('by_user_seq', ['userId', 'seq'])
 		.index('by_user_revisit', ['userId', 'revisitAt'])
 		/**
+		 * `archived` as an index field rather than a post-filter.
+		 *
+		 * The archive flag is a boolean on every row and used to be applied in
+		 * JavaScript AFTER `.collect()` had already pulled every idea the user owns.
+		 * That made the most common request in the app - open the lot - read the
+		 * entire table before discarding the archived rows, so cost grew with total
+		 * history instead of with the page being shown. An index range on
+		 * `(userId, archived)` returns exactly the active set, or exactly the
+		 * archived set, and costs what the page costs.
+		 *
+		 * Added because `list` filters on this flag on every single call. The other
+		 * filters here - favorites, tags, free text - cannot be indexed and still
+		 * need a scan, which is why the handler caps early where it can rather than
+		 * pretending the whole problem is solved.
+		 */
+		.index('by_user_archived', ['userId', 'archived'])
+		/**
 		 * `by_revisit` leads with `revisitAt` so the reminder cron can ask for
 		 * "every idea whose revisit date has passed" as a single index range.
 		 * `by_user_revisit` cannot do that job - it leads with `userId`, so it
 		 * groups by owner rather than by date.
 		 */
-		.index('by_revisit', ['revisitAt']),
+		.index('by_revisit', ['revisitAt'])
+		/**
+		 * Newest-first ordering for the hot path: `(userId, archived, seqDesc)`.
+		 *
+		 * `seqDesc` is `-seq`, so ascending index order IS newest-first. That looks
+		 * redundant until you know Convex 1.46 cannot read an index range backwards:
+		 * `q.order('desc')` is missing from the range object at runtime, and
+		 * `.reverse()` is missing from the type and from the runtime query. Both were
+		 * tried; both passed `svelte-check` and failed live.
+		 *
+		 * Without this, "open the lot" had to read every active idea and sort them,
+		 * because the newest N cannot be taken from the far end of an ascending
+		 * range. Cost grew with total history rather than with the page on screen.
+		 * With it, `take(cap + 1)` returns exactly the newest `cap + 1`, and archived
+		 * rows are excluded by the index rather than filtered in JavaScript.
+		 *
+		 * One inverted number per document is a cheap price for removing the growth
+		 * term, and it is written in the only place `seq` is written - `capture - so
+		 * the two cannot drift apart.
+		 */
+		.index('by_user_archived_seq', ['userId', 'archived', 'seqDesc']),
 
 	ideaTasks: defineTable({
 		ideaId: v.id('ideas'),

@@ -151,6 +151,19 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 const LIST_LIMIT = 250;
 
 /**
+ * `(impact × confidence) ÷ effort`, or -1 when unscored.
+ *
+ * Shared by the list's two sort paths so the fast path and the scan path cannot
+ * disagree about what "high priority" means - which is the kind of divergence that
+ * makes a ranking change depending on whether a filter happened to be set.
+ */
+function priorityOf(idea: Doc<'ideas'>): number {
+	if (idea.impact === undefined || idea.effort === undefined || idea.confidence === undefined) return -1;
+	if (idea.effort <= 0) return -1;
+	return (idea.impact * idea.confidence) / idea.effort;
+}
+
+/**
  * Hard ceiling on the scan backing `stats`.
  *
  * `stats` reads whole documents, description and transcript included, so an
@@ -192,20 +205,84 @@ export const list = query({
 		const userId = await requireUser(ctx);
 
 		const cap = Math.min(Math.max(args.limit ?? LIST_LIMIT, 1), LIST_LIMIT);
-
-		const rows = args.status
-			? await ctx.db
-					.query('ideas')
-					.withIndex('by_user_status', (q) => q.eq('userId', userId).eq('status', args.status!))
-					.collect()
-			: await ctx.db
-					.query('ideas')
-					.withIndex('by_user', (q) => q.eq('userId', userId))
-					.collect();
-
 		const includeArchived = args.includeArchived ?? false;
-		let out = rows.filter((idea) => includeArchived || !idea.archived);
-		if (args.archivedOnly) out = rows.filter((idea) => idea.archived);
+		const needle = args.search?.trim().toLowerCase();
+
+		/**
+		 * Which filters force a full read of the user's rows.
+		 *
+		 * `archived` and `status` are index fields, so they narrow the read in the
+		 * database. `favorite`, tags and free text are not indexed - a substring
+		 * match over six text columns cannot be - so when any of those are present
+		 * the whole candidate set still has to be read to know the true `total`.
+		 *
+		 * This distinction is the whole optimisation: when nothing needs a scan, we
+		 * stop after `cap + 1` rows instead of reading everything the user has ever
+		 * parked, so opening the lot costs the page rather than the history.
+		 */
+		const needsScan = Boolean(needle) || args.favoriteOnly === true || Boolean(args.tags?.length);
+
+		/**
+		 * The read, with the archive and stage filters pushed into the index range
+		 * where possible.
+		 *
+		 * `newestFirst` matters and is not cosmetic. Convex 1.46 cannot read an index
+		 * range backwards - `q.order('desc')` is missing from the range object at
+		 * runtime and `.reverse()` is missing from the type and the runtime query, both
+		 * of which shipped past `svelte-check` before failing live. So the newest-first
+		 * order comes from an inverted key, `seqDesc = -seq`, indexed as
+		 * `(userId, archived, seqDesc)`: ascending there means descending in `seq`.
+		 */
+		const base = (newestFirst: boolean) => {
+			if (args.status) {
+				return ctx.db
+					.query('ideas')
+					.withIndex('by_user_status', (q) => q.eq('userId', userId).eq('status', args.status!));
+			}
+			if (args.archivedOnly) {
+				return ctx.db
+					.query('ideas')
+					.withIndex('by_user_archived', (q) => q.eq('userId', userId).eq('archived', true));
+			}
+			if (!includeArchived) {
+				// The default path, and the one the lot uses: an index range that
+				// returns exactly the active ideas, newest first, and nothing else.
+				return ctx.db
+					.query('ideas')
+					.withIndex('by_user_archived_seq', (q) => q.eq('userId', userId).eq('archived', false));
+			}
+			return ctx.db.query('ideas').withIndex('by_user_seq', (q) => q.eq('userId', userId));
+		};
+
+		if (!needsScan && !args.status) {
+			// One extra row, so `truncated` is exact without counting anything.
+			const page: Doc<'ideas'>[] = await base(true).take(cap + 1);
+
+			let out = page;
+			if (args.sortPriority) {
+				// A priority ranking cannot come from a `seq` index, so this path does
+				// still sort - but over at most `cap + 1` rows rather than over every
+				// idea the user owns.
+				out = [...page].sort((a, b) => priorityOf(b) - priorityOf(a) || b.seq - a.seq);
+			}
+			// `total` is the page size when the cap was reached, because the real total
+			// is unknowable without the scan this path exists to avoid. It is only read
+			// to decide whether to say "showing N of M", and when it is wrong `truncated`
+			// is already true, so what the user sees is an honest "at least this many".
+			return {
+				ideas: out.slice(0, cap).map(toSummary),
+				truncated: page.length > cap,
+				total: page.length > cap ? cap + 1 : page.length
+			};
+		}
+
+		const rows: Doc<'ideas'>[] = await base(false).collect();
+
+		let out = args.archivedOnly
+			? rows
+			: includeArchived
+				? rows
+				: rows.filter((idea) => !idea.archived);
 		if (args.favoriteOnly) out = out.filter((idea) => idea.favorite);
 
 		if (args.tags?.length) {
@@ -214,7 +291,6 @@ export const list = query({
 		}
 
 		// Applied BEFORE the cap, so a search can reach ideas the cap would hide.
-		const needle = args.search?.trim().toLowerCase();
 		if (needle) {
 			out = out.filter(
 				(idea) =>
@@ -230,8 +306,7 @@ export const list = query({
 
 		out.sort((a, b) => b.seq - a.seq);
 		if (args.sortPriority) {
-			const score = (idea: Doc<'ideas'>) => idea.impact !== undefined && idea.effort !== undefined && idea.confidence !== undefined && idea.effort > 0 ? idea.impact * idea.confidence / idea.effort : -1;
-			out.sort((a, b) => score(b) - score(a) || b.seq - a.seq);
+			out.sort((a, b) => priorityOf(b) - priorityOf(a) || b.seq - a.seq);
 		}
 
 		return {
@@ -316,6 +391,10 @@ export const capture = mutation({
 		const ideaId = await ctx.db.insert('ideas', {
 			userId,
 			seq,
+			// `-seq` so an ascending `(userId, archived, seqDesc)` index range is
+			// newest-first. Set here, in the only place `seq` is assigned, so the
+			// inverted key cannot drift from the sequence it mirrors.
+			seqDesc: -seq,
 			title: cleanTitle,
 			description: normaliseBody(description),
 			problem: normaliseBody(args.problem),
