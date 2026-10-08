@@ -165,6 +165,9 @@ export const list = query({
 			)
 		),
 		includeArchived: v.optional(v.boolean()),
+		archivedOnly: v.optional(v.boolean()),
+		favoriteOnly: v.optional(v.boolean()),
+		sortPriority: v.optional(v.boolean()),
 		tags: v.optional(v.array(v.string())),
 		/**
 		 * Server-side text match over title, description and tags.
@@ -195,6 +198,8 @@ export const list = query({
 
 		const includeArchived = args.includeArchived ?? false;
 		let out = rows.filter((idea) => includeArchived || !idea.archived);
+		if (args.archivedOnly) out = rows.filter((idea) => idea.archived);
+		if (args.favoriteOnly) out = out.filter((idea) => idea.favorite);
 
 		if (args.tags?.length) {
 			const wanted = new Set(args.tags.map((t) => t.toLowerCase()));
@@ -213,6 +218,10 @@ export const list = query({
 		}
 
 		out.sort((a, b) => b.seq - a.seq);
+		if (args.sortPriority) {
+			const score = (idea: Doc<'ideas'>) => idea.impact !== undefined && idea.effort !== undefined && idea.confidence !== undefined && idea.effort > 0 ? idea.impact * idea.confidence / idea.effort : -1;
+			out.sort((a, b) => score(b) - score(a) || b.seq - a.seq);
+		}
 
 		return {
 			ideas: out.slice(0, cap).map(toSummary),
