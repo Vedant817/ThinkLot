@@ -40,10 +40,39 @@ stronger thing.
 
 **Caveats that remain true.** An emulator is not a physical device: no real
 touch target under a thumb, no OEM battery or background-process behaviour, and
-screen recording and animations are unreliable on this harness instance. The
-three fixes in 1–3 were typechecked but the APK was not rebuilt afterwards at the
-time this line was first written, so "fixed" meant "correct in source" and not
-"correct on screen" — see the build record below, which supersedes that.
+screen recording and animations are unreliable on this harness instance.
+
+## Second release build — the spec fields, verified on device
+
+Rebuilt (14m29s, three real ABIs) and reinstalled to check the three spec fields
+that were added to the idea detail screen — *who is it for*, *expected outcome*,
+*source / trigger* — which had previously only been typechecked.
+
+Walked on screen, at 1080x2400:
+
+1. Launch with a session restored from an earlier run — the Home tab rendered with
+   the persisted idea, violet primary action, Feather tab icons and a violet active
+   tab.
+2. Lot → LOT-0001 → detail. All three fields present and correctly labelled.
+3. Typed `field engineers` into *who is it for* and `a staff meeting` into *source
+   / trigger*. The Save button went violet and the note changed to "Text edits are
+   waiting to be saved" — the dirty state is real, not cosmetic.
+4. Saved. The note reverted to "Text saved" and the button greyed out.
+5. **Persistence checked independently of the editor.** Searched `field engineers`
+   in the lot search box and LOT-0001 came back. That string appears nowhere in the
+   idea's title or description — it exists only in the `audience` column — so the
+   value is in Convex and the search genuinely covers the new field. Verifying via
+   the same screen that wrote it would only have proved the optimistic state.
+
+The three device-found fixes from the first build are confirmed on screen in this
+build: the filter strip's first chip is fully visible, and the list heading clears
+the tab bar.
+
+**Not covered by this walk:** iOS, VoiceOver, tablet and foldable widths, rotation
+mid-edit, and the two-client race that the `reconcile` aliasing fix addresses —
+that needs a second client writing to the same idea, which one emulator cannot do.
+The fix is covered by `scripts/verify-capture-regressions.ts` instead, which is
+what found it.
 
 ## Pending acceptance and known gaps
 

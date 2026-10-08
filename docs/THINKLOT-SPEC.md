@@ -146,11 +146,38 @@ Drop ideas here in 30 seconds. You can make them "beautiful" later.
 ## 3.1 What "done" means here, and what is still open
 
 All eight weeks are implemented. **That statement is now qualified**, because the
-first version of it was wrong: an audit against this document found four things
-ticked off and never built (three Inbox fields in section 2, and the Dashboard in
-section 6). Week-level checkboxes are too coarse to be trustworthy on their own.
+first version of it was wrong.
 
-What follows is the honest position.
+### The audit, and what it found
+
+Auditing every claim in this document against the code — not the checkboxes,
+the claims — found **seven** places where the document asserted something the code
+did not do. All are now fixed; the point of listing them is that six of the seven
+were *ticked*, and a green box on a week is far too coarse to notice a field that
+was never built.
+
+| Spec claim | Reality found |
+|---|---|
+| §2 "Who is it for" | absent from schema, mutations and both clients |
+| §2 "Expected outcome" | absent |
+| §2 "Source / trigger" | absent — the existing `source` column records *dictation*, a different question |
+| §6 Dashboard in main navigation | no `/dashboard` route; the landing page's "Login to dashboard" was a live 404 |
+| Week 3 "Card view + list view toggle" | one layout, no toggle, and it satisfied the card half only |
+| Week 8 "Deploy" | never deployed, by deliberate decision |
+| Week 1 base folders + `src/types/Idea.ts` | `/stores` empty, `/types` absent, type lives in `src/lib/types.ts` |
+
+Everything else in this document was checked and **is** genuinely implemented:
+the six statuses (a superset of the four specified), search, the board with
+drag-and-drop, the scoring formula, the three review rules with
+snooze/archive/promote, checklists with a progress indicator, auth and sync,
+36 keyboard shortcuts and dark mode.
+
+The generalisable lesson, recorded here rather than left implicit: **week-level
+checkboxes are not evidence.** The per-item acceptance criteria in 5.1 are closer
+to evidence, and they were unchecked for most of the project only because nobody
+had verified them either.
+
+### Verified by execution
 
 **Verified by execution**
 - Backend: `npm run verify:e2e` — 132 live checks against the dev deployment,
@@ -159,20 +186,27 @@ What follows is the honest position.
 - Keyboard shortcuts: `npm run verify:shortcuts` — 36 checks.
 - React Native client: typecheck and lint clean, Expo Doctor 21/21, Android and
   iOS Hermes exports pass. Exports prove bundling, not native rendering.
-- **Android on device** (API 36, 1080x2400): a release APK was built with real
-  device ABIs, installed, and the signup → capture → LOT-0001 journey was walked.
-  Verified on screen: light and dark palettes, 1.3x system font scale, and a
-  360x640dp small phone. Four defects were found this way and fixed.
+- **Android on device** (API 36, 1080x2400): two release APKs built with real
+  device ABIs, installed, and the signup → capture → LOT-0001 journey walked. The
+  three spec fields were typed, saved, and their persistence confirmed
+  independently via server-side search — a string that exists only in the `audience`
+  column, not in the title or description. Verified on screen: light and dark
+  palettes, 1.3x system font scale, a 360x640dp small phone. Four defects were
+  found this way and fixed.
 - Swift client: a static contract check over 16 backend functions. Compilation,
   simulator and device testing need Apple SDKs and are unverified on this host.
 
 **Not verified — needs a browser or a device**
 - **Any rendered web UI.** No browser has ever been attached to this session, so
   every web claim above is compiled output, HTTP responses or pure-function tests.
-  This is the largest remaining gap and it is not closeable from the toolchain.
-- The new Dashboard and the three spec fields, as rendered pixels.
+  The app is a client-rendered shell, so even its SSR output proves nothing about
+  what is inside a conditional branch. This is the largest remaining gap and it is
+  not closeable from the toolchain available here.
+- The new Dashboard, the list view, and the three spec fields — as rendered pixels
+  on the web. The spec fields *are* verified on Android; the web half is not.
 - The entire iOS journey.
 - A production deployment of any kind.
+- Anything on a physical device rather than an emulator.
 
 **Known and accepted, documented rather than hidden**
 - Account enumeration. Convex Auth v1 rethrows distinguishable errors from a
