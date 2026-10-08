@@ -12,29 +12,83 @@ import {
   type TextInputProps,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { PropsWithChildren } from "react";
+import { useState, type PropsWithChildren } from "react";
+
+/**
+ * The ThinkLot palette.
+ *
+ * These are the SAME values as the web app's layout.css, deliberately. Two
+ * clients of one product that drift apart on colour are two products, and the
+ * drift here was not subtle: this file previously used a sage/olive palette
+ * (paper #F5F6ED, ink #22281F, accent #B05B00) with no violet anywhere, so every
+ * primary action rendered as a dark olive slab and the app read as a different
+ * product from the one the design language describes.
+ *
+ * The rule the whole system rests on: violet (--signal) means "the action you
+ * should take", amber (--lot) means "a number you need to read" (LOT plates and
+ * priority scores). Nothing else is allowed to be either colour.
+ *
+ * Dark is neutral, not blue-black, because this tool gets used at night as often
+ * as on a train in daylight.
+ */
+export type Palette = ReturnType<typeof usePalette>;
 
 export function usePalette() {
-  return useColorScheme() === "dark"
+  const dark = useColorScheme() === "dark";
+  return dark
     ? {
-        paper: "#171916",
-        ink: "#F1F2E9",
-        muted: "#A4ABA0",
-        line: "#42483E",
-        accent: "#FFD269",
-        panel: "#242820",
-        danger: "#FFAAA0",
+        paper: "#0e0e11",
+        panel: "#17171b",
+        sunk: "#121216",
+        line: "#26262c",
+        lineStrong: "#6b6b75",
+        ink: "#f4f4f1",
+        ink2: "#a8a8a2",
+        muted: "#8d8d86",
+        signal: "#8b7cf6",
+        signalInk: "#14101f",
+        signalSoft: "#1e1a33",
+        lot: "#f0b429",
+        lotSoft: "#2b2010",
+        ok: "#46b981",
+        danger: "#ff9d94",
       }
     : {
-        paper: "#F5F6ED",
-        ink: "#22281F",
-        muted: "#5A6353",
-        line: "#C4CBB8",
-        accent: "#B05B00",
-        panel: "#EBEEDF",
-        danger: "#A72B26",
+        paper: "#ffffff",
+        panel: "#f6f6f4",
+        sunk: "#eeeeeb",
+        line: "#e4e4de",
+        lineStrong: "#85857d",
+        ink: "#141418",
+        ink2: "#55554f",
+        // 4.618:1 on --sunk, measured. The web token was darkened from #6f6f68
+        // because it failed AA on that surface; keeping the same value here
+        // keeps the two clients honest about it.
+        muted: "#6b6b64",
+        signal: "#5b4bdb",
+        signalInk: "#ffffff",
+        signalSoft: "#eeecfd",
+        lot: "#8a5300",
+        lotSoft: "#fdf1dc",
+        ok: "#0f6b45",
+        danger: "#a81f14",
       };
 }
+
+/**
+ * Monospace family for plates, scores and labels.
+ *
+ * The LOT plate is the product's signature element and it only reads as a
+ * *stamp* if it is monospaced. Neither platform has JetBrains Mono bundled, so
+ * this picks the platform mono rather than silently falling back to the sans
+ * face - which is what made the plate look like an ordinary label before.
+ */
+export const mono = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+}) as string;
+
 export function Page({
   children,
   scroll = true,
@@ -47,7 +101,7 @@ export function Page({
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{
         padding: 20,
-        gap: 18,
+        gap: 14,
         paddingBottom: Math.max(insets.bottom, 20) + 24,
       }}
     >
@@ -69,68 +123,170 @@ export function Page({
     </KeyboardAvoidingView>
   );
 }
+
+/**
+ * The screen header.
+ *
+ * The display size came down from 34 to 26. At 34 it consumed roughly a third
+ * of the first viewport on EVERY screen, which is precisely wrong for a
+ * capture-first tool: the user arrived to type a thought, not to read a
+ * headline. 26 still reads as a title and leaves the capture field above the
+ * fold on a 5" phone.
+ */
 export function Heading({
   title,
   subtitle,
+  eyebrow = "ThinkLot / Field ledger",
 }: {
   title: string;
   subtitle?: string;
+  eyebrow?: string;
 }) {
   const c = usePalette();
   return (
-    <View
-      style={{
-        gap: 8,
-        borderBottomWidth: 1,
-        borderColor: c.line,
-        paddingBottom: 18,
-      }}
-    >
-      <Text style={{ color: c.muted, fontSize: 12, letterSpacing: 2 }}>
-        THINKLOT / FIELD LEDGER
+    <View style={{ gap: 6 }}>
+      <Text
+        style={{
+          color: c.muted,
+          fontFamily: mono,
+          fontSize: 11,
+          letterSpacing: 2.4,
+          textTransform: "uppercase",
+        }}
+      >
+        {eyebrow}
       </Text>
       <Text
         accessibilityRole="header"
-        style={{ fontSize: 34, fontWeight: "700", color: c.ink }}
+        style={{ fontSize: 26, lineHeight: 30, fontWeight: "700", color: c.ink }}
       >
         {title}
       </Text>
-      {subtitle && (
-        <Text style={{ color: c.muted, fontSize: 15 }}>{subtitle}</Text>
-      )}
+      {subtitle ? (
+        <Text style={{ color: c.ink2, fontSize: 14, lineHeight: 20 }}>{subtitle}</Text>
+      ) : null}
     </View>
   );
 }
+
+/** Small caps label. The workhorse for field names and counts. */
 export function Label({ children }: PropsWithChildren) {
   const c = usePalette();
   return (
-    <Text style={{ color: c.ink, fontSize: 17, fontWeight: "600" }}>
+    <Text
+      style={{
+        color: c.muted,
+        fontFamily: mono,
+        fontSize: 11,
+        letterSpacing: 1.4,
+        textTransform: "uppercase",
+      }}
+    >
       {children}
     </Text>
   );
 }
+
 export function Note({ children }: PropsWithChildren) {
   const c = usePalette();
   return (
-    <Text style={{ color: c.muted, fontSize: 15, lineHeight: 22 }}>
+    <Text style={{ color: c.ink2, fontSize: 15, lineHeight: 22 }}>{children}</Text>
+  );
+}
+
+/**
+ * The LOT plate.
+ *
+ * The one element allowed to be amber, because amber means "a number you need
+ * to read". This is the product's signature and its main conversational
+ * primitive - "that was LOT-0042" - so it is rendered as a stamp: monospace,
+ * tracked out, on a tinted ground, never competing with the title for weight.
+ */
+export function Plate({ children }: PropsWithChildren) {
+  const c = usePalette();
+  return (
+    <Text
+      style={{
+        color: c.lot,
+        backgroundColor: c.lotSoft,
+        fontFamily: mono,
+        fontSize: 12,
+        letterSpacing: 0.6,
+        overflow: "hidden",
+        borderRadius: 3,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+      }}
+    >
       {children}
     </Text>
   );
 }
+
+/** A bordered surface. Structure comes from 1px rules, never from shadow. */
+export function Card({
+  children,
+  style,
+}: PropsWithChildren<{ style?: object }>) {
+  const c = usePalette();
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: c.paper,
+          borderWidth: 1,
+          borderColor: c.line,
+          borderRadius: 8,
+          padding: 14,
+          gap: 10,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+/** A hairline. Structure in this design system is carried by rules. */
+export function Rule() {
+  const c = usePalette();
+  return <View style={{ height: 1, backgroundColor: c.line }} />;
+}
+
+/**
+ * The primary action, in violet.
+ *
+ * This was `backgroundColor: c.ink` - a near-black slab - which is why every
+ * primary button in the app looked heavy, dead, and unlike the web client.
+ * Violet is reserved for exactly one thing: the action the user should take
+ * next. There is no second violet element competing for it.
+ */
 export function Button({
   title,
   onPress,
   disabled,
   primary,
   danger,
+  compact,
 }: {
   title: string;
   onPress: () => void;
   disabled?: boolean;
   primary?: boolean;
   danger?: boolean;
+  /** Filter-strip variant: shorter, tighter, never the primary action. */
+  compact?: boolean;
 }) {
   const c = usePalette();
+  const background = danger
+    ? "transparent"
+    : primary
+      ? c.signal
+      : "transparent";
+  const border = danger ? c.danger : primary ? c.signal : c.lineStrong;
+  const foreground = danger ? c.danger : primary ? c.signalInk : c.ink;
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -139,20 +295,25 @@ export function Button({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
-        minHeight: 48,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        // 48dp for actions, 40dp for filter chips. The chips are not dropped
+        // further because they are still touch targets, only secondary ones -
+        // and this app is used one-handed and in motion.
+        minHeight: compact ? 40 : 48,
+        paddingHorizontal: compact ? 12 : 16,
+        paddingVertical: compact ? 8 : 12,
+        borderRadius: compact ? 6 : 8,
         borderWidth: 1,
-        borderColor: danger ? c.danger : c.line,
-        backgroundColor: primary ? c.ink : c.panel,
-        opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
+        borderColor: disabled ? c.line : border,
+        backgroundColor: disabled ? c.panel : background,
+        opacity: pressed && !disabled ? 0.75 : 1,
         justifyContent: "center",
+        alignItems: "center",
       })}
     >
       <Text
         style={{
-          color: primary ? c.paper : danger ? c.danger : c.ink,
-          fontSize: 15,
+          color: disabled ? c.muted : foreground,
+          fontSize: compact ? 13 : 15,
           fontWeight: "600",
         }}
       >
@@ -161,32 +322,80 @@ export function Button({
     </Pressable>
   );
 }
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+
+/**
+ * A horizontally scrolling filter strip.
+ *
+ * Wrapping four filter buttons put them on two ragged rows with a single orphan
+ * on the second, which reads as an accident rather than a layout. One scrolling
+ * row is the standard mobile treatment, and it degrades properly when the board
+ * adds six stage chips on top of the other filters.
+ */
+export function ChipRow({ children }: PropsWithChildren) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 8, paddingRight: 20, alignItems: "center" }}
+      style={{ marginHorizontal: -20, flexGrow: 0 }}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+/**
+ * A labelled input.
+ *
+ * `placeholder` is now part of the contract rather than something callers have to
+ * remember: the search field was rendering as a completely empty bordered box
+ * with its hint above it, which reads as a broken control rather than an empty
+ * one. A field with no value should say what belongs in it.
+ */
+export function Field({
+  label,
+  placeholder,
+  hint,
+  ...props
+}: TextInputProps & { label: string; hint?: string }) {
   const c = usePalette();
+  const [focused, setFocused] = useState(false);
   return (
     <View style={{ gap: 7 }}>
-      <Text style={{ color: c.muted, fontSize: 13 }}>{label}</Text>
+      <Label>{label}</Label>
       <TextInput
         accessibilityLabel={label}
+        placeholder={placeholder}
         placeholderTextColor={c.muted}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         {...props}
         style={[
           {
             minHeight: 48,
             color: c.ink,
             borderWidth: 1,
-            borderColor: c.line,
-            backgroundColor: c.panel,
-            padding: 12,
+            // Violet on focus, matching the web app's focus behaviour. A 1px
+            // border-colour change alone is a weak focus affordance, and this
+            // field is the single most-used control in the product.
+            borderColor: focused ? c.signal : c.line,
+            backgroundColor: c.paper,
+            borderRadius: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 12,
             fontSize: 16,
             textAlignVertical: props.multiline ? "top" : "center",
           },
           props.style,
         ]}
       />
+      {hint ? (
+        <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
+
 export function Failure({
   message,
   retry,
@@ -198,21 +407,30 @@ export function Failure({
   return message ? (
     <View
       accessibilityLiveRegion="polite"
-      style={{ gap: 8, borderLeftWidth: 3, borderColor: c.danger, padding: 12 }}
+      style={{
+        gap: 8,
+        borderWidth: 1,
+        borderColor: c.danger,
+        borderRadius: 8,
+        padding: 12,
+        backgroundColor: "transparent",
+      }}
     >
-      <Text style={{ color: c.danger }}>{message}</Text>
-      {retry && <Button title="Try again" onPress={retry} />}
+      <Text style={{ color: c.danger, fontSize: 14, lineHeight: 20 }}>{message}</Text>
+      {retry ? <Button title="Try again" onPress={retry} /> : null}
     </View>
   ) : null;
 }
+
 export function Loading() {
   const c = usePalette();
   return (
     <View style={{ padding: 30 }}>
-      <ActivityIndicator accessibilityLabel="Loading" color={c.accent} />
+      <ActivityIndicator accessibilityLabel="Loading" color={c.signal} />
     </View>
   );
 }
+
 export const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   section: { gap: 12 },

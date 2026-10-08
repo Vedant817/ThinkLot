@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
   api,
@@ -12,12 +13,15 @@ import {
 import { useLiveQuery } from "../lib/live-query";
 import {
   Button,
+  ChipRow,
   Failure,
   Field,
   Heading,
   Loading,
+  mono,
   Note,
   Page,
+  Plate,
   styles,
   usePalette,
 } from "./ui";
@@ -76,16 +80,20 @@ export function IdeaList({
       />
       {!archive && !board && <Capture />}
       <Field
-        label="Search title, notes or tags"
+        label="Search"
+        placeholder="Title, notes or a tag"
         value={search}
         onChangeText={setSearch}
+        returnKeyType="search"
       />
-      <View style={styles.row}>
+      <ChipRow>
         <Button
+          compact
           title={cards ? "List view" : "Card view"}
           onPress={() => setCards(!cards)}
         />
         <Button
+          compact
           title={status ?? "All stages"}
           onPress={() =>
             setStatus(
@@ -96,24 +104,27 @@ export function IdeaList({
           }
         />
         <Button
-          title={favorites ? "Favorites only ✓" : "Favorites"}
+          compact
+          title={favorites ? "Favorites only" : "Favorites"}
           onPress={() => setFavorites(!favorites)}
         />
         <Button
-          title={priority ? "Priority ↓" : "Newest ↓"}
+          compact
+          title={priority ? "Priority" : "Newest"}
           onPress={() => setPriority(!priority)}
         />
-      </View>
+      </ChipRow>
       {board && (
-        <View style={styles.row}>
+        <ChipRow>
           {IDEA_STATUSES.map((stage) => (
             <Button
               key={stage}
+              compact
               title={stage + (status === stage ? " ✓" : "")}
               onPress={() => setStatus(status === stage ? undefined : stage)}
             />
           ))}
-        </View>
+        </ChipRow>
       )}
       <Failure message={query.error} retry={query.retry} />
       {query.data?.truncated && (
@@ -122,7 +133,10 @@ export function IdeaList({
           a stage to narrow the results.
         </Note>
       )}
-      {query.data && (
+      {/* "0 shown of 0" is a fact about nobody. It only earns its line once
+          there is something to count, and the count is the thing being
+          truncated - so a matching result set is the only case that needs it. */}
+      {query.data && ideas.length > 0 && (
         <Note>
           {ideas.length} shown
           {favorites || archive ? " in this view" : ` of ${query.data.total}`}
@@ -176,21 +190,31 @@ export function IdeaList({
             })}
           >
             <View style={styles.row}>
+              {/* The plate is the one element allowed amber: it is a number the
+                  user reads and quotes. Rendered as a stamp so it reads as a
+                  label rather than as body text. */}
+              <Plate>{lotPlate(item.seq)}</Plate>
               <Text
                 style={{
-                  color: c.accent,
-                  fontFamily: "monospace",
+                  color: c.muted,
+                  fontFamily: mono,
                   fontSize: 12,
                 }}
               >
-                {lotPlate(item.seq)}
+                {item.status}
               </Text>
-              <Text style={{ color: c.muted }}>
-                {item.status} {item.favorite ? "★" : ""} ·{" "}
+              <Text
+                style={{
+                  color: priorityScore(item) === null ? c.muted : c.lot,
+                  fontFamily: mono,
+                  fontSize: 12,
+                }}
+              >
                 {displayScore(priorityScore(item))}
               </Text>
+              {item.favorite ? <Feather name="star" size={13} color={c.lot} /> : null}
             </View>
-            <Text style={{ color: c.ink, fontSize: 21, fontWeight: "600" }}>
+            <Text style={{ color: c.ink, fontSize: 17, lineHeight: 23, fontWeight: "600" }}>
               {item.title}
             </Text>
             {item.preview && <Note>{item.preview}</Note>}

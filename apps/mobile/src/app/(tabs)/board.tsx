@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useMutation } from "convex/react";
 import { api, IDEA_STATUSES, lotPlate, type Id } from "../../lib/api";
@@ -14,6 +14,8 @@ import {
   Loading,
   Note,
   Page,
+  Plate,
+  styles,
   usePalette,
 } from "../../components/ui";
 export default function Board() {
@@ -88,7 +90,12 @@ export default function Board() {
                   columns.current[stage] = view;
                 }}
                 style={{
-                  width: 270,
+                  // 270dp showed one and a half columns and clipped the second
+                  // column's count mid-word, which reads as broken rather than
+                  // scrollable. 300dp shows a full column plus a deliberate peek
+                  // of the next one - the standard cue that there is more.
+                  width: 300,
+                  borderRadius: 8,
                   backgroundColor: c.panel,
                   borderWidth: 1,
                   borderColor: c.line,
@@ -129,26 +136,39 @@ export default function Board() {
                         onCancel={() => setDragging(false)}
                         onDrop={(x, y) => drop(idea._id as Id<"ideas">, x, y)}
                       >
-                        <Note>{lotPlate(idea.seq)}</Note>
-                        <Label>{idea.title}</Label>
-                        <Button
-                          title="Open idea"
-                          onPress={() =>
-                            router.push({
-                              pathname: "/idea/[id]",
-                              params: { id: idea._id },
-                            })
-                          }
-                        />
-                        <Button
-                          title={
-                            selected === idea._id
-                              ? "Selected to move ✓"
-                              : "Move idea"
-                          }
-                          disabled={busy}
-                          onPress={() => setSelected(idea._id as Id<"ideas">)}
-                        />
+                        <Plate>{lotPlate(idea.seq)}</Plate>
+                        {/* This was a <Label>, which is the 11px uppercase mono
+                            caption style - so the idea's title rendered smaller
+                            and quieter than its own metadata. A title on a board
+                            is the thing you are scanning for. */}
+                        <Text
+                          style={{
+                            color: c.ink,
+                            fontSize: 15,
+                            lineHeight: 20,
+                            fontWeight: "600",
+                          }}
+                        >
+                          {idea.title}
+                        </Text>
+                        <View style={styles.row}>
+                          <Button
+                            compact
+                            title="Open"
+                            onPress={() =>
+                              router.push({
+                                pathname: "/idea/[id]",
+                                params: { id: idea._id },
+                              })
+                            }
+                          />
+                          <Button
+                            compact
+                            title={selected === idea._id ? "Selected" : "Move"}
+                            disabled={busy}
+                            onPress={() => setSelected(idea._id as Id<"ideas">)}
+                          />
+                        </View>
                       </DraggableCard>
                     </View>
                   ))}
