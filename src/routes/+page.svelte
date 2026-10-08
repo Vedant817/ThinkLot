@@ -116,7 +116,7 @@
 
 				<div class="mt-8 flex flex-wrap gap-3">
 					<a
-						href={resolve('/login')}
+						href={resolve('/login?next=/dashboard')}
 						class="rounded-md bg-signal px-5 py-3 text-sm font-bold text-signal-ink transition hover:brightness-110"
 					>
 						Login to dashboard

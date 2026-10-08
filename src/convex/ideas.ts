@@ -134,6 +134,13 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 		archived: idea.archived,
 		source: idea.source,
 		revisitAt: idea.revisitAt,
+		/**
+		 * The trigger is carried into the list so a card can say what prompted the
+		 * idea without a second fetch. Audience and outcome are not: they are long
+		 * free text, and the list is capped - shipping them here would multiply
+		 * response bytes for content only the detail page shows.
+		 */
+		...(idea.trigger ? { trigger: idea.trigger } : {}),
 		createdAt: idea.createdAt,
 		updatedAt: idea.updatedAt,
 		...(idea.description ? { preview: idea.description.slice(0, 160) } : {})
@@ -213,6 +220,10 @@ export const list = query({
 				(idea) =>
 					idea.title.toLowerCase().includes(needle) ||
 					(idea.description ?? '').toLowerCase().includes(needle) ||
+					(idea.problem ?? '').toLowerCase().includes(needle) ||
+					(idea.audience ?? '').toLowerCase().includes(needle) ||
+					(idea.outcome ?? '').toLowerCase().includes(needle) ||
+					(idea.trigger ?? '').toLowerCase().includes(needle) ||
 					idea.tags.some((t) => t.includes(needle))
 			);
 		}
@@ -252,6 +263,15 @@ export const capture = mutation({
 	args: {
 		title: v.string(),
 		description: v.optional(v.string()),
+		problem: v.optional(v.string()),
+		/**
+		 * The spec's "Who is it for", "Expected outcome" and "Source / trigger".
+		 * Optional on capture because the whole premise is capturing in 30 seconds
+		 * without judging - these are filled in later, or never.
+		 */
+		audience: v.optional(v.string()),
+		outcome: v.optional(v.string()),
+		trigger: v.optional(v.string()),
 		source: v.optional(v.union(v.literal('typed'), v.literal('dictated'))),
 		transcript: v.optional(v.string())
 	},
@@ -298,6 +318,10 @@ export const capture = mutation({
 			seq,
 			title: cleanTitle,
 			description: normaliseBody(description),
+			problem: normaliseBody(args.problem),
+			audience: normaliseBody(args.audience),
+			outcome: normaliseBody(args.outcome),
+			trigger: normaliseBody(args.trigger),
 			status: 'inbox',
 			tags: [],
 			favorite: false,
@@ -340,6 +364,13 @@ export const update = mutation({
 		title: v.optional(v.string()),
 		description: v.optional(v.union(v.string(), v.null())),
 		problem: v.optional(v.union(v.string(), v.null())),
+		/**
+		 * Spec fields. `null` clears, omitting leaves alone - the same contract as
+		 * every other optional field here.
+		 */
+		audience: v.optional(v.union(v.string(), v.null())),
+		outcome: v.optional(v.union(v.string(), v.null())),
+		trigger: v.optional(v.union(v.string(), v.null())),
 		tags: v.optional(v.union(v.array(v.string()), v.null())),
 
 		/**
@@ -384,6 +415,10 @@ export const update = mutation({
 		// undefined, so an explicit null clears the body.
 		if ('description' in args) patch.description = normaliseBody(args.description);
 		if ('problem' in args) patch.problem = normaliseBody(args.problem);
+
+		if ('audience' in args) patch.audience = normaliseBody(args.audience);
+		if ('outcome' in args) patch.outcome = normaliseBody(args.outcome);
+		if ('trigger' in args) patch.trigger = normaliseBody(args.trigger);
 
 		// Tags need their own null branch. `normaliseTags(null)` returns undefined,
 		// which this handler treats as "no change" - so sending null would be a

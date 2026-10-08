@@ -133,7 +133,8 @@
 	 * A visibly disabled item with "soon" is honest; a 404 is not.
 	 */
 	const NAV = [
-		{ href: '/ideas', label: 'Lot', soon: false },
+		{ href: '/dashboard', label: 'Dashboard', soon: false },
+	{ href: '/ideas', label: 'Lot', soon: false },
 		{ href: '/board', label: 'Board', soon: false },
 		{ href: '/review', label: 'Review', soon: false },
 		{ href: '/archive', label: 'Archive', soon: false }

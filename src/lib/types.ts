@@ -16,6 +16,12 @@ export type Idea = {
 	title: string;
 	description?: string;
 	problem?: string;
+	/** Spec field: "Who is it for". */
+	audience?: string;
+	/** Spec field: "Expected outcome". */
+	outcome?: string;
+	/** Spec field: "Source / trigger" - what prompted the idea. Not dictation. */
+	trigger?: string;
 	/**
 	 * First 160 characters of `description`, supplied by the list query. The list
 	 * deliberately does not ship the full (up to 20 KB) body.

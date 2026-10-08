@@ -17,6 +17,9 @@
 	let title = $state('');
 	let description = $state('');
 	let problemText = $state('');
+	let audienceText = $state('');
+	let outcomeText = $state('');
+	let triggerText = $state('');
 	let tagDraft = $state('');
 
 	/**
@@ -72,6 +75,9 @@
 		title = incoming.title;
 		description = incoming.description ?? '';
 		problemText = incoming.problem ?? '';
+		audienceText = incoming.audience ?? '';
+		outcomeText = incoming.outcome ?? '';
+		triggerText = incoming.trigger ?? '';
 		tagDraft = '';
 	});
 
@@ -131,21 +137,33 @@
 	 * execution could silently drop whichever edit landed first - the classic
 	 * last-write-wins data loss.
 	 */
-	type TextField = 'title' | 'description' | 'problem';
+	type TextField = 'title' | 'description' | 'problem' | 'audience' | 'outcome' | 'trigger';
+
+	/**
+	 * Buffer and server value for each field, as lookups.
+	 *
+	 * This began as a nested ternary over three fields and did not survive
+	 * growing to six. Beyond the three deep nestings, a chain like
+	 * `field === 'a' ? a : field === 'b' ? b : c` silently sends the WRONG field
+	 * the moment a case is added and the final `else` becomes the fallback - so
+	 * editing "audience" would patch `problem`. A map cannot have that bug.
+	 */
+	const BUFFER: Record<TextField, () => string> = {
+		title: () => title.trim(),
+		description: () => description,
+		problem: () => problemText,
+		audience: () => audienceText,
+		outcome: () => outcomeText,
+		trigger: () => triggerText
+	};
 
 	function commitText(field: TextField) {
 		if (!idea) return;
+		const bufferValue = BUFFER[field]();
+		const serverValue = idea[field] ?? '';
 
-		const serverValue =
-			field === 'title'
-				? idea.title
-				: field === 'description'
-					? (idea.description ?? '')
-					: (idea.problem ?? '');
-		const bufferValue = field === 'title' ? title.trim() : field === 'description' ? description : problemText;
-
-		// Only the blurred field is compared, so editing "Problem it solves" is
-		// never discarded by an early return that looked only at title/description.
+		// Only the blurred field is compared, so editing one field is never
+		// discarded by an early return that looked only at another.
 		if (bufferValue === serverValue) return;
 
 		void run(() =>
@@ -278,6 +296,56 @@
 						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
 					></textarea>
 				</label>
+
+				<!--
+					The three fields the product spec asks for in its Inbox model and
+					which were missing from the app entirely: "Who is it for",
+					"Expected outcome" and "Source / trigger".
+
+					Placed with the problem statement rather than buried lower down,
+					because the three of them together are the difference between an
+					idea you can act on and a sentence you liked the sound of.
+				-->
+				<div class="mt-4 grid gap-4 sm:grid-cols-3">
+					<label class="block">
+						<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Who is it for
+						</span>
+						<textarea
+							bind:value={audienceText}
+							onblur={() => commitText('audience')}
+							rows="2"
+							placeholder="Who has this problem?"
+							class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
+						></textarea>
+					</label>
+
+					<label class="block">
+						<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Expected outcome
+						</span>
+						<textarea
+							bind:value={outcomeText}
+							onblur={() => commitText('outcome')}
+							rows="2"
+							placeholder="What is true afterwards that is not true now?"
+							class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
+						></textarea>
+					</label>
+
+					<label class="block">
+						<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Source / trigger
+						</span>
+						<textarea
+							bind:value={triggerText}
+							onblur={() => commitText('trigger')}
+							rows="2"
+							placeholder="A conversation, a problem you hit, an article…"
+							class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
+						></textarea>
+					</label>
+				</div>
 
 				<!-- Checklist: the bridge from "an idea I keep" to "a thing I do" -->
 				<TaskChecklist ideaId={idea._id} {tasks} />

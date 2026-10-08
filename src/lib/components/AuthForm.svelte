@@ -15,11 +15,30 @@
 	let problem = $state<string | null>(null);
 
 	const isSignup = $derived(mode === 'signup');
+
+	/**
+	 * Where to land after authenticating.
+	 *
+	 * `next` is attacker-controllable, so it is validated against an allowlist of
+	 * real app routes rather than trusted. That is what stops `?next=https://evil`
+	 * or `?next=//evil` turning the sign-in form into an open redirect.
+	 *
+	 * The cost of an allowlist is that a new route is silently rejected until it
+	 * is added here - and that is exactly what happened to /dashboard: the landing
+	 * page's "Login to dashboard" link pointed at a route this list did not know,
+	 * so it quietly fell back to /ideas. Add every app route to APP_ROUTES.
+	 */
+	const APP_ROUTES = ['/dashboard', '/ideas', '/board', '/review', '/archive'] as const;
+
 	const destination = $derived.by(() => {
 		const next = page.url.searchParams.get('next');
-		if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/ideas';
+		if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) {
+			return '/dashboard';
+		}
 		const path = next.split(/[?#]/)[0];
-		return ['/ideas', '/board', '/review', '/archive'].some((route) => path === route || path.startsWith(route + '/')) ? next : '/ideas';
+		return APP_ROUTES.some((route) => path === route || path.startsWith(route + '/'))
+			? next
+			: '/dashboard';
 	});
 	// Navigate only after the socket confirms auth, including restored sessions.
 	$effect(() => {

@@ -77,6 +77,21 @@ const schema = defineSchema({
 		description: v.optional(v.string()),
 		problem: v.optional(v.string()),
 
+		/**
+		 * The three capture fields the product spec asks for and that were
+		 * missing: "Who is it for", "Expected outcome" and "Source / trigger".
+		 *
+		 * These were absent from the schema, the mutations and every screen, and
+		 * the roadmap had them ticked off anyway - which is precisely the failure
+		 * this comment exists to prevent.
+		 *
+		 * `source` is NOT one of them: that records whether text arrived by voice,
+		 * which is a different question from what prompted the idea.
+		 */
+		audience: v.optional(v.string()),
+		outcome: v.optional(v.string()),
+		trigger: v.optional(v.string()),
+
 		status: ideaStatus,
 		tags: v.array(v.string()),
 

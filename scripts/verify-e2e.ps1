@@ -396,6 +396,40 @@ Check "positions are unique after a mid-list deletion" ($distinct -eq @($posTask
 Check "capture order is preserved despite the gap" ($posTitles -eq 'step one,step three,step four') "-> $posTitles"
 Check "a client-supplied position is still rejected" (Refused (Call 'tasks:addTask' (@{ ideaId=$posIdea; title='sneaky'; position=0 } | ConvertTo-Json -Compress) $tokenA 'mutation'))
 
+Write-Host "`n== 11g. Spec capture fields: who it is for, outcome, trigger ==" -ForegroundColor Cyan
+# These three are in the product spec's Inbox model and were absent from the
+# schema, the mutations and every screen - while the roadmap showed them ticked.
+$specId = Call 'ideas:capture' (@{ title='spec field probe'; audience='field engineers'; outcome='no more lost notes'; trigger='a conversation with a colleague' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "capture accepts the three spec fields" (-not (Refused $specId)) "err=$($specId.errorMessage)"
+
+$specIdea = (Call 'ideas:get' (@{ ideaId=$specId.value } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "who-it-is-for persists" ($specIdea.audience -eq 'field engineers') "-> '$($specIdea.audience)'"
+Check "expected outcome persists" ($specIdea.outcome -eq 'no more lost notes') "-> '$($specIdea.outcome)'"
+Check "source / trigger persists" ($specIdea.trigger -eq 'a conversation with a colleague') "-> '$($specIdea.trigger)'"
+
+$null = Call 'ideas:update' (@{ ideaId=$specId.value; audience=$null } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$afterClear = (Call 'ideas:get' (@{ ideaId=$specId.value } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "null clears the audience" ($null -eq $afterClear.audience) "-> '$($afterClear.audience)'"
+Check "clearing one leaves the others alone" ($afterClear.outcome -eq 'no more lost notes' -and $afterClear.trigger -eq 'a conversation with a colleague') "-> outcome='$($afterClear.outcome)' trigger='$($afterClear.trigger)'"
+
+$null = Call 'ideas:update' (@{ ideaId=$specId.value; title='spec field probe renamed' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$afterOmit = (Call 'ideas:get' (@{ ideaId=$specId.value } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "omitting a spec field leaves it unchanged" ($afterOmit.outcome -eq 'no more lost notes' -and $afterOmit.trigger -eq 'a conversation with a colleague') "-> outcome='$($afterOmit.outcome)'"
+
+$listHit = Call 'ideas:list' (@{ search='conversation with a colleague' } | ConvertTo-Json -Compress) $tokenA
+Check "search matches the trigger field" (@($listHit.value.ideas | Where-Object { $_._id -eq $specId.value }).Count -eq 1) "status=$($listHit.status) err=$($listHit.errorMessage)"
+
+# Re-set the audience first. This check originally ran after the null-clear above,
+# so it searched for a value that had deliberately been removed - the test was
+# wrong, not the search, and the second failure below cascaded from the first.
+$null = Call 'ideas:update' (@{ ideaId=$specId.value; audience='field engineers' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$listAudience = Call 'ideas:list' (@{ search='field engineers' } | ConvertTo-Json -Compress) $tokenA
+Check "search matches the audience field" (@($listAudience.value.ideas | Where-Object { $_._id -eq $specId.value }).Count -eq 1) "status=$($listAudience.status)"
+$listProj = $listAudience.value.ideas | Where-Object { $_._id -eq $specId.value }
+Check "the list projection carries the trigger" ($listProj.trigger -eq 'a conversation with a colleague') "-> '$($listProj.trigger)'"
+$listOutcome = Call 'ideas:list' (@{ search='no more lost notes' } | ConvertTo-Json -Compress) $tokenA
+Check "search matches the outcome field" (@($listOutcome.value.ideas | Where-Object { $_._id -eq $specId.value }).Count -eq 1) "status=$($listOutcome.status)"
+
 Write-Host "`n== 15. Brute-force throttle (auth:signIn) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #
