@@ -45,6 +45,18 @@ export type MaturityInput = {
 	doneTasks?: number;
 	/** Total checklist rows, if the caller has them. */
 	totalTasks?: number;
+	/**
+	 * How many of `problem` / `audience` / `outcome` are answered, when the caller has
+	 * only that count.
+	 *
+	 * Needed because list responses deliberately omit the three: they are long free
+	 * text and the list is capped. Without this, "omitted" and "empty" are
+	 * indistinguishable and every listed idea computes as `spark`.
+	 *
+	 * When absent, the three strings are read directly - so callers holding whole rows
+	 * (the detail page) need do nothing.
+	 */
+	coreFields?: number;
 };
 
 export type Maturity = {
@@ -86,13 +98,30 @@ export function maturityOf(input: MaturityInput): Maturity {
 	const next: string[] = [];
 
 	// --- the three core questions ------------------------------------------------
-	const absent = CORE.filter((field) => !present(input[field]));
+	//
+	// Prefer the caller's COUNT when given, because that is the only signal available
+	// from a list response. Falling back to the strings is correct for whole rows.
+	//
+	// Note what a count does NOT buy: WHICH question is missing. With only a count,
+	// naming a field would be a confident guess - an idea that answered audience and
+	// outcome but not the problem would be told to "describe the problem", which is
+	// the one thing it has already done. So field-level advice is only given when the
+	// fields are actually in hand, and a count produces honest count-level advice.
+	const hasFieldLevel = typeof input.coreFields !== 'number';
+	const answered = hasFieldLevel
+		? CORE.filter((field) => present(input[field])).length
+		: Math.max(0, Math.min(CORE.length, Math.trunc(input.coreFields as number)));
+	const absent = hasFieldLevel ? CORE.filter((field) => !present(input[field])) : [];
+	const coreShort = CORE.length - answered;
 	const LABEL: Record<(typeof CORE)[number], string> = {
 		problem: 'the problem it solves',
 		audience: 'who it is for',
 		outcome: 'the outcome it should produce'
 	};
 	for (const field of absent) missing.push(LABEL[field]);
+	if (!hasFieldLevel && coreShort > 0) {
+		missing.push(`${coreShort} of the three core questions`);
+	}
 
 	// --- a judgement -------------------------------------------------------------
 	const hasScore = scored(input);
@@ -121,7 +150,7 @@ export function maturityOf(input: MaturityInput): Maturity {
 	// so a fully written and scored idea with no tasks yet reported as "shaped",
 	// understating it. Judging is a decision; actioning is a task. Keep them apart.
 	let stage: MaturityStage = 'spark';
-	if (absent.length === 0) stage = 'shaped';
+	if (coreShort === 0) stage = 'shaped';
 	if (stage === 'shaped' && hasScore) stage = 'judged';
 	if (stage === 'judged' && hasTasks) stage = 'actioned';
 	// Committed once the work is genuinely happening or finished - not merely
@@ -137,7 +166,7 @@ export function maturityOf(input: MaturityInput): Maturity {
 	// Weighted so that the three core questions dominate. Ten core points each, six
 	// for a score, four for a trigger, ten for having any next step - 100 total.
 	let percent = 0;
-	percent += (CORE.length - absent.length) * 10;
+	percent += answered * 10;
 	if (hasScore) percent += 6;
 	if (present(input.trigger)) percent += 4;
 	if (hasTasks) percent += 10;
@@ -153,6 +182,11 @@ export function maturityOf(input: MaturityInput): Maturity {
 	let nextStep = '';
 	if (absent.length > 0) {
 		nextStep = `Describe ${absent[0] === 'problem' ? 'the problem' : LABEL[absent[0]]}`;
+	} else if (coreShort > 0) {
+		// Count-only, so the specific field is genuinely unknown. Say how many are
+		// outstanding rather than guessing which - the detail page, which holds the
+		// fields, will name it.
+		nextStep = `Answer ${coreShort} more of the three core question${coreShort === 1 ? '' : 's'}`;
 	} else if (!hasScore) {
 		nextStep = 'Score impact, confidence and effort';
 	} else if (!hasTasks) {

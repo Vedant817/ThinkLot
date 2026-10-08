@@ -6,6 +6,7 @@
 	import { api } from '../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { maturityLabel, maturityOf } from '$lib/maturity';
+import { buildRoadmap, LANE_LABEL, type Lane } from '$lib/roadmap';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	/**
@@ -59,6 +60,28 @@
 
 	const stats = $derived(statsHandle?.current);
 	const top = $derived(topHandle?.current?.ideas ?? []);
+
+	/**
+	 * The roadmap's lot, which is NOT the top-five above.
+	 *
+	 * An idea's lane depends on what it is competing with, so ranking five ideas and
+	 * planning from those five would produce a plan that changes as the top five
+	 * changes. Capped at the list fast path's own bound rather than raised, so this
+	 * cannot reintroduce the unbounded-read problem.
+	 */
+	let roadmapHandle = $state<QueryHandle<{ ideas: Idea[] }> | null>(null);
+
+	$effect(() => {
+		const next = watchQuery<{ ideas: Idea[] }>(convex.client!, api.ideas.list, { limit: 250 });
+		roadmapHandle = next;
+		return () => {
+			next.dispose();
+		};
+	});
+
+	const plan = $derived(
+		buildRoadmap(roadmapHandle?.current?.ideas ?? [], { nowCapacity: 3, nextCapacity: 7 })
+	);
 
 	/**
 	 * Busy until both queries have actually reported.
@@ -231,5 +254,105 @@
 				</li>
 			{/each}
 		</ul>
+	{/if}
+
+	<!--
+		Roadmap.
+
+		Separate from the ranking above, because they answer different questions. The
+		ranking says which ideas are worth most. The roadmap says which you are actually
+		going to do, and it is the one with a capacity limit - `now` holds three, so a
+		list of forty equally-good ideas does not become a list of forty commitments.
+
+		It needs the lot rather than the top five, since an idea's lane depends on what
+		else is competing with it.
+	-->
+	<h2 class="mt-8 font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+		Roadmap
+	</h2>
+
+	{#if roadmapHandle?.loading}
+		<p class="mt-2 font-mono text-[11px] tracking-wider text-ink-3 uppercase">Loading…</p>
+	{:else if plan.empty}
+		<!--
+			Not "your roadmap is empty". Nothing is plannable yet, and the fix is
+			specific: describe and score a few ideas. An empty column would be a
+			confident answer to a question nobody has data for.
+		-->
+		<p class="mt-2 max-w-sm text-sm leading-6 text-ink-3">
+			Nothing is plannable yet. Describe the problem, the audience and the outcome on an idea,
+			then score it - an idea with all three and a score is ready to plan.
+		</p>
+	{:else}
+		<div class="mt-2 space-y-3">
+			<!--
+				`as Lane` is needed because an inline array literal widens `lane` to
+				string, which then cannot index `Record<Lane, string>`.
+			-->
+			{#each [{ lane: 'now' as Lane, list: plan.now }, { lane: 'next' as Lane, list: plan.next.slice(0, 4) }] as column (column.lane)}
+				<section class="rounded-lg border border-rule bg-paper" data-lane={column.lane}>
+					<header class="flex items-baseline justify-between gap-3 border-b border-rule px-3 py-2">
+						<h3 class="font-mono text-[11px] tracking-wider uppercase {column.lane === 'now' ? 'text-signal' : 'text-ink-3'}">
+							{LANE_LABEL[column.lane]}
+							<span class="text-ink-3">{column.list.length}</span>
+						</h3>
+					</header>
+					{#if column.list.length === 0}
+						<p class="px-3 py-3 text-sm text-ink-3">Nothing here.</p>
+					{:else}
+						<ul>
+							{#each column.list as entry (entry.idea._id)}
+								<li class="flex items-baseline gap-3 px-3 py-2">
+									<a
+										href={`/ideas/${entry.idea._id}`}
+										data-idea={entry.idea._id}
+										class="min-w-0 flex-1 truncate text-sm text-ink underline-offset-4 hover:text-ink-2 hover:underline"
+									>
+										{entry.idea.title}
+									</a>
+									<!-- The score is a number the reader must act on reading. -->
+									<span class="shrink-0 font-mono text-[11px] text-lot" data-numeric="true">
+										{displayScore(entry.score)}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
+			{/each}
+		</div>
+
+		<!--
+			Overflow is stated, never hidden. If eleven ideas want `now` and three fit,
+			saying so is the difference between a plan and a silent edit of the user's
+			priorities on their behalf.
+		-->
+		{#if plan.overflow.length > 0}
+			<p class="mt-2 font-mono text-[11px] text-ink-3">
+				{plan.overflow.length} more ready idea{plan.overflow.length === 1 ? '' : 's'} outrank
+				these; `now` holds 3.
+			</p>
+		{/if}
+
+		{#if plan.unready.length > 0}
+			<details class="mt-3">
+				<summary class="cursor-pointer font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+					{plan.unready.length} not ready yet
+				</summary>
+				<ul class="mt-2 space-y-1.5">
+					{#each plan.unready as entry (entry.idea._id)}
+						<li class="text-sm">
+							<a
+								href={`/ideas/${entry.idea._id}`}
+								class="text-ink-2 underline-offset-4 hover:text-ink hover:underline"
+							>
+								{entry.idea.title}
+							</a>
+							<span class="text-ink-3"> — {entry.reason}</span>
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
 	{/if}
 </div>

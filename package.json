@@ -19,11 +19,12 @@
     "verify:lotquery": "vite-node scripts/verify-lot-query.ts",
     "verify:maturity": "vite-node scripts/verify-maturity.ts",
     "verify:clustering": "vite-node scripts/verify-clustering.ts",
+    "verify:roadmap": "vite-node scripts/verify-roadmap.ts",
     "verify:web": "vite-node scripts/verify-web.ts",
     "verify:authproxy": "vite-node scripts/verify-authproxy.ts",
     "verify:concurrency": "vite-node scripts/verify-concurrency.ts",
     "verify:contracts": "node apps/ios/scripts/verify-contracts.mjs",
-    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:shortcuts && npm run verify:contracts"
+    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:roadmap && npm run verify:shortcuts && npm run verify:contracts"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.2",

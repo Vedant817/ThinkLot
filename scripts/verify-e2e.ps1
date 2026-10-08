@@ -557,4 +557,17 @@ Write-Host "  NOTE  $rlEmail is now throttled for up to an hour by design" -Fore
 Write-Host "`n-------------------------------------------"
 if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
 else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
-Write-Host "`nQA accounts created: $emailA / $emailB" -ForegroundColor DarkGray
+
+# Every account this run leaves behind. The first version printed only the two
+# primary ones, which understated the leak by half - a cleanup strategy built from
+# that list would have orphaned the clustering and throttle fixtures, and they are
+# exactly the ones that keep growing the database.
+Write-Host "`nQA accounts created by this run (none are cleaned up):" -ForegroundColor DarkGray
+foreach ($addr in @($emailA, $emailB, $clEmail, $rlEmail)) {
+    if ($addr) { Write-Host "  $addr" -ForegroundColor DarkGray }
+}
+
+# EXIT CODE. This was missing entirely, so the script printed "FAILED: 1" in red and
+# still returned 0 - meaning any CI wired to this file would have gone green on a
+# broken backend. A verification suite that cannot fail a build is decoration.
+exit $(if ($failures.Count -eq 0) { 0 } else { 1 })

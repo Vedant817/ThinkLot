@@ -104,6 +104,8 @@ async function nextSeq(ctx: MutationCtx, userId: Id<'users'>) {
  * preview; full bodies are fetched one at a time by `get`.
  */
 type IdeaSummary = {
+	/** See the note where `coreFields` is computed in `toSummary`. */
+	coreFields: number;
 	_id: string;
 	seq: number;
 	title: string;
@@ -142,6 +144,22 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 		 * response bytes for content only the detail page shows.
 		 */
 		...(idea.trigger ? { trigger: idea.trigger } : {}),
+		/**
+		 * How many of the three core questions are answered - carried as a COUNT, not
+		 * the text.
+		 *
+		 * This is a correctness fix, not an optimisation. `maturityOf` cannot tell an
+		 * omitted field from an empty one, and the summary omits all three, so every
+		 * idea in every list-derived view computed as `spark`: the dashboard's maturity
+		 * badge read "Spark" for every idea in "Worth building first", and the roadmap
+		 * judged the entire lot unplannable. The unit tests passed because they fed
+		 * whole objects - the mismatch only appears against what `list` actually returns.
+		 *
+		 * A count is a few bytes per idea, and it makes absence mean what it says.
+		 */
+		coreFields: (['problem', 'audience', 'outcome'] as const).filter(
+			(field) => typeof idea[field] === 'string' && idea[field].trim().length > 0
+		).length,
 		createdAt: idea.createdAt,
 		updatedAt: idea.updatedAt,
 		...(idea.description ? { preview: idea.description.slice(0, 160) } : {})

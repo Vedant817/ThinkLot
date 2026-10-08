@@ -178,6 +178,14 @@ async function main() {
 	const tagged = await call('ideas:update', { ideaId: captured.value, tags: ['handover', 'field'] }, tokens.token);
 	check('added tags', tagged.status === 'success', String(tagged.errorMessage ?? ''));
 
+	// A deliberately UNFORMED idea: a title and nothing else.
+	//
+	// Without one of these, the roadmap's "not ready" lane is never rendered and the
+	// honesty feature goes untested - the dashboard would look identical whether the
+	// lane worked or the code were silently padding `later` with it.
+	const bare = await call('ideas:capture', { title: 'Bare note, never developed', source: 'typed' }, tokens.token);
+	check('captured an unformed idea for the not-ready lane', bare.status === 'success', String(bare.errorMessage ?? ''));
+
 	const scored = await call('ideas:update', {
 		ideaId: captured.value,
 		impact: 8,
@@ -266,9 +274,66 @@ async function main() {
 			body = await page.text();
 		}
 
-		check('the dashboard counts the parked idea', /parked\s*\n?\s*1\b/i.test(body), body.slice(0, 200));
+		// Both ideas sit in INBOX, so that is the row that should read 2. Asserting on
+	// `parked` was asserting on an assumption about where scoring puts an idea, which
+	// is a different question and was quietly wrong once a second idea existed.
+	check('the dashboard counts the ideas', /inbox\s*\n?\s*2\b/i.test(body), body.slice(0, 200));
 		check('the dashboard does not claim nothing is scored', !has(body, 'Nothing scored yet'), 'the ranking is empty despite a scored idea');
 		check('the dashboard ranks the scored idea', has(body, 'Surface stale field notes'), 'the idea is missing from "worth building first"');
+
+		// --- Roadmap ---------------------------------------------------------------
+		//
+		// Read structurally with a data attribute, for the same reason the pipeline is:
+		// lane headings are uppercased by CSS, so a text match on "Now" against "NOW" is
+		// a formatting accident, not a fact about the page.
+		const lanes = await page.evaluate<Array<{ lane: string; titles: string[] }>>(`
+			(() => {
+				const out = [...document.querySelectorAll('[data-lane]')].map((section) => ({
+					lane: section.getAttribute('data-lane') ?? '',
+					titles: [...section.querySelectorAll('[data-idea]')].map((a) => (a.textContent ?? '').trim())
+				}));
+				return out;
+			})()
+		`);
+
+		check('the roadmap renders lanes', lanes.length >= 1, `lanes: ${JSON.stringify(lanes)}`);
+		const nowTitles = lanes.find((l) => l.lane === 'now')?.titles ?? [];
+		check('the roadmap does not pad `now` to its capacity', nowTitles.length <= 3, `now holds ${nowTitles.length}`);
+		check(
+			'the roadmap puts the only plannable idea in `now`',
+			nowTitles.some((t) => t.startsWith('Surface stale field notes')),
+			JSON.stringify(lanes)
+		);
+		// The unformed idea must NOT reach `now`, and must be disclosed as unready
+		// with a reason - not silently filed under `later` as if it were a deferral.
+		check(
+			'the roadmap does not let an unformed idea into `now`',
+			!nowTitles.some((t) => t.includes('Bare note')),
+			JSON.stringify(lanes)
+		);
+		check(
+			'the roadmap explains what is not ready',
+			/not ready yet/i.test(body),
+			'no "not ready yet" disclosure for ideas that cannot be ranked'
+		);
+		// Read via textContent, not innerText. The not-ready lane lives in a collapsed
+		// <details>, and `innerText` returns text *as rendered* - collapsed children
+		// are display:none, so they are genuinely not in it. Asserting on innerText
+		// here would fail on a page that is working perfectly, or worse, pass because
+		// the reason is missing entirely and the summary happens to match.
+		const notReadyText = await page.evaluate<string>(`
+			(() => (document.querySelector('[data-lane="unready"], details')?.textContent ?? ''))()
+		`);
+		check(
+			'the roadmap says why the unformed idea is not ready',
+			/not scored/i.test(notReadyText),
+			`not-ready lane text: ${JSON.stringify(notReadyText.slice(0, 200))}`
+		);
+		check(
+			'the roadmap names the unformed idea in the not-ready lane',
+			/Bare note/i.test(notReadyText),
+			JSON.stringify(notReadyText.slice(0, 200))
+		);
 
 		// The pipeline, read structurally rather than by regex over text. `innerText`
 		// collapses the bar element between the stage label and its count, so the
@@ -285,8 +350,12 @@ async function main() {
 		`);
 		check('the pipeline lists every stage', pipeline.length === 6, `${pipeline.length} rows: ${JSON.stringify(pipeline)}`);
 		const total = pipeline.reduce((sum, [, count]) => sum + (Number(count) || 0), 0);
-		check('the pipeline accounts for the parked idea', total === 1, `pipeline sums to ${total}: ${JSON.stringify(pipeline)}`);
-		check('the inbox row holds it', pipeline.find(([stage]) => stage === 'inbox')?.[1] === '1', JSON.stringify(pipeline));
+		// TWO ideas exist in this account: the developed, scored one, and the bare note
+		// added for the not-ready lane. Both sit in `inbox`, because scoring an idea
+		// does not advance it to `parked` - worth being explicit, since a count that
+		// does not move when it is expected to reads as a pipeline bug.
+		check('the pipeline accounts for both ideas', total === 2, `pipeline sums to ${total}: ${JSON.stringify(pipeline)}`);
+		check('the inbox row holds both', pipeline.find(([stage]) => stage === 'inbox')?.[1] === '2', JSON.stringify(pipeline));
 		await page.screenshot(`${SHOTS}/dashboard-desktop.png`);
 	}
 

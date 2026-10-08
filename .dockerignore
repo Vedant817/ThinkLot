@@ -15,9 +15,25 @@ build
 .svelte-kit
 dist
 
-# Convex source is not part of the web image - it is deployed separately with
-# `npx convex deploy`. Sending it would only bloat the context.
-src/convex
+# Convex FUNCTION source is not part of the web image - it is deployed separately
+# with `npx convex deploy`. Sending it would only bloat the context.
+#
+# BUT src/convex/_generated MUST come along, or the image cannot build.
+#
+# This exclusion used to be the whole `src/convex` directory, which shipped an image
+# whose production build failed on missing modules: nine web modules import the
+# generated `api` proxy at runtime (src/lib/convex/client.svelte.ts and every route
+# that calls a Convex function), and the generated directory sits inside the one
+# that was excluded. Nobody had caught it because nothing here has ever run
+# `docker build`.
+#
+# Files are excluded rather than the directory ON PURPOSE. Docker stops descending
+# into an excluded directory, so a `!src/convex/_generated` exception placed after
+# `src/convex` would never be evaluated - the exclusion has to leave the directory
+# itself in the walk.
+src/convex/*.ts
+src/convex/*.js
+!src/convex/_generated
 convex.json
 scripts
 

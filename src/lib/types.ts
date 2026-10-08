@@ -27,6 +27,14 @@ export type Idea = {
 	 * deliberately does not ship the full (up to 20 KB) body.
 	 */
 	preview?: string;
+	/**
+	 * How many of `problem` / `audience` / `outcome` are answered (0-3).
+	 *
+	 * The list omits all three - they are long free text and the list is capped - so
+	 * without this count `maturityOf` reads every listed idea as an unformed spark.
+	 * It is a count rather than the text precisely so it can be carried cheaply.
+	 */
+	coreFields?: number;
 	status: IdeaStatus;
 	tags: string[];
 	impact?: number;

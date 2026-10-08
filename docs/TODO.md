@@ -65,8 +65,11 @@ behind the ones that do not.
       cluster if it is INFORMATIVE: shared by a minority. `#work` on 80% of a lot is
       the rule, not a signal, and the naive "shares any tag" version chains an entire
       backlog into one useless cluster.
-- [ ] **Idea roadmap builder** — order ideas into now / next / later from scores and
-      stages.
+- [x] **Idea roadmap builder** - `src/lib/roadmap.ts`. FOUR lanes, not three: `now` is
+      capacity-limited, and an idea that cannot be ranked or acted on goes to `unready`
+      and says what it is missing, instead of padding `later`. Work already started is
+      never displaced by a higher score, and overflow is reported rather than hidden.
+      See `docs/DECISIONS.md` for the four architecture decisions.
 - [ ] **Idea export** — export ideas as Markdown. No Notion API key needed for a
       Markdown export that pastes into Notion; a true API push needs a token.
 - [ ] **Public sharing** — an explicit, revocable, per-idea share link. Needs a

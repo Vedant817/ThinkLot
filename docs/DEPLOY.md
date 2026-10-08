@@ -37,20 +37,28 @@ The dev deployment used during development is already over its Free-plan quota,
 so do this deliberately rather than by accident.
 
 ```bash
-npx convex deploy          # creates and pushes to a production deployment
-npx convex env list        # confirm JWT_PRIVATE_KEY, JWKS and SITE_URL
+npx convex deploy --prod    # creates and pushes to a production deployment
+npx convex env list --prod  # confirm JWT_PRIVATE_KEY, JWKS and SITE_URL
 ```
 
-If the project has no production deployment yet, `npx convex deploy` will ask to
-create one and will print the URL. That URL is what the frontend needs.
+If the project has no production deployment yet, `npx convex deploy --prod` will ask
+to create one and will print the URL. That URL is what the frontend needs.
 
 Set the auth environment variables **on the production deployment**:
 
 ```bash
-npx convex env set JWT_PRIVATE_KEY "<pem>"
-npx convex env set JWKS          '<json>'
-npx convex env set SITE_URL      "https://your-domain"
+npx convex env set --prod JWT_PRIVATE_KEY "<pem>"
+npx convex env set --prod JWKS          '<json>'
+npx convex env set --prod SITE_URL      "https://your-domain"
 ```
+
+> **`--prod` is not optional here.** `npx convex env set` targets the **dev**
+> deployment unless you pass it — verified against the installed CLI, where `--prod`
+> is documented as switching to "this project's default production deployment".
+> The first version of this guide omitted the flag, so following it verbatim would
+> have written production signing keys onto the dev deployment, leaving production
+> without keys and quietly destroying the dev signing material. `convex deploy`
+> defaults to dev for the same reason.
 
 `SITE_URL` matters: it is the OAuth / magic-link callback origin. Leaving it
 pointing at localhost is the classic "works on my machine" auth bug.
