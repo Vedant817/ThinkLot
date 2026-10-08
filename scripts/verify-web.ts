@@ -311,6 +311,100 @@ async function main() {
 
 	await page.screenshot(`${SHOTS}/ai-settings.png`);
 
+	console.log('\n== AI actions on an idea: inert until configured, and honest about it ==');
+
+	await page.goto(`${BASE}/ideas/${captured.value}`);
+	// Wait on a STATIC label, not on the idea's problem text. That text lives in a
+	// textarea, and `innerText` cannot see form-control values - the same trap this
+	// harness documents elsewhere, hit again here.
+	await waitForAll(page, ['WHO IS IT FOR'], 'idea detail');
+
+	// The account running this suite has NO AI key configured, which is the state every
+	// user starts in. The buttons must be visibly disabled AND must explain why, with a
+	// route to fix it. A greyed-out button with no explanation is the failure this checks.
+	const aiIdle = await page.evaluate<{ disabled: boolean; hint: string }>(`
+		(() => {
+			const btn = document.querySelector('[data-ai-action="Summarise"]');
+			const panel = document.querySelector('[data-ai-panel]');
+			return {
+				disabled: btn?.disabled ?? false,
+				hint: (panel?.innerText ?? '').trim()
+			};
+		})()
+	`);
+	check('the AI panel renders on an idea', aiIdle.hint.length > 0);
+	check('Summarise is disabled with no provider configured', aiIdle.disabled, 'a model call must not be possible unconfigured');
+	check(
+		'an unconfigured AI button explains itself and links to settings',
+		/set one up/i.test(aiIdle.hint),
+		`panel: ${JSON.stringify(aiIdle.hint.slice(0, 200))}`
+	);
+	check(
+		'no AI call is attempted without configuration',
+		!(await page.evaluate<boolean>(`
+			(() => !!document.querySelector('[data-ai-error]'))()
+		`)),
+		'an error appeared even though nothing was pressed'
+	);
+
+	// The duplicate check must NOT appear for an idea with no similar title. Offering
+	// the button when there is nothing to judge invites a call that cannot conclude
+	// anything, and "no duplicates" is a claim the shortlist cannot support.
+	const dupButton = await page.evaluate<boolean>(`
+		(() => !!document.querySelector('[data-ai-action="Check for duplicates"]'))()
+	`);
+	check(
+		'the duplicate check is absent when there is nothing to judge',
+		!dupButton,
+		'offered a judgement with an empty shortlist'
+	);
+
+	// Consent must be stated before anything is sent, so it has to be visible in the
+	// CONFIGURED state - which is the only state where a send is possible.
+	//
+	// Configured here with Ollama, which needs no key. That enables the button without
+	// a secret and without any provider being reachable, so the copy can be asserted
+	// honestly. The button is deliberately NOT clicked: there is no local model server,
+	// and a test that fires a real request at a non-existent endpoint proves nothing.
+	await page.evaluate(`
+		(() => {
+			sessionStorage.setItem('thinklot.ai.v1.config', JSON.stringify({
+				providerId: 'ollama', baseUrl: '', model: 'llama3.2'
+			}));
+			return true;
+		})()
+	`);
+	// Navigate rather than reload: this harness has no reload(), and a plain goto is the
+	// same thing for this purpose - a fresh document reading the storage we just wrote.
+	await page.goto(`${BASE}/ideas/${captured.value}`);
+	await waitForAll(page, ['WHO IS IT FOR'], 'idea detail, configured');
+
+	const armed = await page.evaluate<{ enabled: boolean; panel: string }>(`
+		(() => {
+			const btn = document.querySelector('[data-ai-action="Summarise"]');
+			return {
+				enabled: btn ? !btn.disabled : false,
+				panel: document.querySelector('[data-ai-panel]')?.innerText ?? ''
+			};
+		})()
+	`);
+	check('a configured provider enables the action', armed.enabled, `panel: ${JSON.stringify(armed.panel.slice(0, 160))}`);
+	check(
+		'the panel states exactly what will be sent',
+		/sends? this idea|title/i.test(armed.panel),
+		`panel: ${JSON.stringify(armed.panel.slice(0, 200))}`
+	);
+	check(
+		'nothing was sent just because the provider became configured',
+		!/Working|error/i.test(armed.panel),
+		'a call fired on load, which would cost the user money unbidden'
+	);
+
+	// Clear it again so the rest of the suite runs as it was.
+	await page.evaluate(`sessionStorage.removeItem('thinklot.ai.v1.config'); true`);
+
+	await page.screenshot(`${SHOTS}/idea-ai.png`);
+
 	console.log('\n== the dashboard tells the truth about this account ==');
 	/**
 	 * This started as a screenshot and a suspicion.

@@ -21,6 +21,7 @@ import {
 	summariseMessages,
 	duplicateMessages
 } from '../src/lib/ai/prompts';
+import { duplicateCandidates, candidateReason, titleSimilarity } from '../src/lib/duplicates';
 
 const call = (over: Partial<ModelCall> = {}): ModelCall => ({
 	provider: providerById('openai'),
@@ -353,4 +354,94 @@ const call = (over: Partial<ModelCall> = {}): ModelCall => ({
 	assert.match(msgs[1].content, /id=a/);
 }
 
-console.log('PASS: three API shapes build correctly, every failure becomes a sentence, and model output is validated rather than trusted.');
+// ---------------------------------------------------------------------------
+// 8. THE SHORTLIST. Retrieval must be allowed to be wrong; judgement must not be
+//    polluted by everything else.
+// ---------------------------------------------------------------------------
+{
+	const i = (id: string, title: string, ...tags: string[]) => ({ _id: id, title, tags });
+
+	// A near-identical title is a candidate regardless of tags.
+	const same = duplicateCandidates(i('a', 'Handover checklist'), [
+		i('b', 'Handover checklist'),
+		i('c', 'Something else entirely')
+	]);
+	assert.deepEqual(same.map((c) => c.idea._id), ['b'], 'an identical title is the strongest candidate');
+	assert.equal(same[0].lexical, 1);
+
+	// A typo and a reworded title are still close - which is what trigrams are for.
+	const typo = duplicateCandidates(i('a', 'Handover checklist'), [i('b', 'Hand-over check list')]);
+	assert.ok(typo.length >= 1, `a reworded title should survive, got ${typo.length}`);
+	assert.ok((typo[0]?.lexical ?? 0) > 0.4, `and score close, got ${typo[0]?.lexical}`);
+
+	// THE RULE THAT MATTERS: a shared tag alone is NEVER a candidate.
+	//
+	// Two postmortems can both be tagged #handover and describe different incidents.
+	// Offering that pair to a model is how you manufacture a false duplicate.
+	const tagOnly = duplicateCandidates(i('a', 'Solar array debris warning'), [
+		i('b', 'Forklift battery replacement log', 'handover'),
+		i('c', 'Pallet racking inspection', 'handover')
+	]);
+	assert.deepEqual(tagOnly, [], 'shared tags must not create a candidate');
+
+	// But tags CAN raise a candidate that already qualifies on wording.
+	const both = duplicateCandidates(i('a', 'Handover checklist for field crews', 'field'), [
+		i('b', 'Field handover checklist', 'field')
+	]);
+	assert.equal(both.length, 1);
+	assert.ok(both[0].tagOverlap > 0, 'and contribute to the ranking');
+
+	// A lot of exactly TWO ideas must still be checked. The first version of this had an
+// `all.length < 2` guard, which meant the smallest lot where the question is most
+// obviously worth asking could never ask it.
+{
+	const pair = duplicateCandidates(i('a', 'Handover checklist'), [i('b', 'Handover checklist')]);
+	assert.equal(pair.length, 1, 'two ideas is enough to have a duplicate question');
+}
+
+// Nothing similar at all is an honest empty, not a weak guess.
+	assert.deepEqual(duplicateCandidates(i('a', 'Zebra crossing paint'), [i('b', 'Espresso grinder burrs')]), []);
+
+	// The idea itself is never its own duplicate.
+	assert.deepEqual(duplicateCandidates(i('a', 'Same'), [i('a', 'Same'), i('b', 'Same')]).map((c) => c.idea._id), ['b']);
+
+	// Shortlist is bounded, so cost stays bounded.
+	const many = Array.from({ length: 50 }, (_, n) => i(`x${n}`, 'Handover checklist'));
+	assert.ok(duplicateCandidates(i('a', 'Handover checklist'), many).length <= 5, 'never more than the limit');
+
+	// Deterministic - a shortlist that reshuffles is not reviewable.
+	const list = [i('a', 'Handover checklist'), i('b', 'Handover checklists'), i('c', 'Handover checklist items')];
+	assert.deepEqual(
+		duplicateCandidates(list[0], list).map((c) => c.idea._id),
+		duplicateCandidates(list[0], [...list].reverse()).map((c) => c.idea._id)
+	);
+}
+
+// A reason must not quote a similarity figure - it implies a confidence the lexical
+// method has no basis for, which is what judgement is for.
+{
+	const c = duplicateCandidates({ _id: 'a', title: 'Handover checklist', tags: [] }, [
+		{ _id: 'b', title: 'Handover checklist', tags: [] }
+	])[0];
+	const reason = candidateReason(c);
+	assert.ok(!/\d+%|\d+\.\d+/.test(reason), `reason quotes a number: ${reason}`);
+	assert.match(reason, /same words|Nearly/i);
+}
+
+// Empty and single inputs are not errors.
+{
+	assert.deepEqual(duplicateCandidates({ _id: 'a', title: 'x', tags: [] }, []), []);
+	assert.deepEqual(duplicateCandidates({ _id: 'a', title: 'x', tags: [] }, [{ _id: 'a', title: 'x', tags: [] }]), []);
+	assert.equal(titleSimilarity('', ''), 0);
+	assert.equal(titleSimilarity('x', ''), 0);
+	// A title made ENTIRELY of stopwords normalises to nothing, so it cannot match
+	// even itself. That is the safe direction: there is no wording to compare, and
+	// returning 1 would call two unrelated ideas duplicates on the strength of
+	// "the" and "of".
+	assert.equal(titleSimilarity('the and of', 'the and of'), 0, 'no words to compare is not a match');
+	assert.equal(titleSimilarity('the and of', 'forklift batteries'), 0);
+	// But stopword removal must not make real titles dissimilar.
+	assert.ok(titleSimilarity('field notes', 'notes for the field') > 0.3, 'stopwords must not drown out real words');
+}
+
+console.log('PASS: three API shapes build correctly, every failure becomes a sentence, model output is validated, and only plausible pairs reach judgement.');

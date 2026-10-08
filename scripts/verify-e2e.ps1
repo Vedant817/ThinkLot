@@ -528,6 +528,42 @@ Check "an untagged idea has no neighbours" (@($clLonerGet.related).Count -eq 0) 
 $clOther = Call 'ideas:get' (@{ ideaId=$clA.value } | ConvertTo-Json -Compress) $tokenB 'query'
 Check "another user gets no related ideas" ($null -eq $clOther.value) "status=$($clOther.status)"
 
+Write-Host "`n== 11k. Duplicate shortlist (never a whole-lot scan) ==" -ForegroundColor Cyan
+# Uses its OWN account again: whether two titles count as similar depends on the size
+# of the whole lot, so reusing the main QA account makes the result depend on how many
+# ideas earlier sections happened to create.
+$dupEmail = "qa-dupes-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$dupToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$dupEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+$dupMain = Call 'ideas:capture' (@{ title='Handover checklist for field crews' } | ConvertTo-Json -Compress) $dupToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$dupMain.value; tags=@('field') } | ConvertTo-Json -Compress) $dupToken 'mutation'
+
+# Same wording, different id: must be shortlisted.
+$dupNear = Call 'ideas:capture' (@{ title='Handover checklist for the field' } | ConvertTo-Json -Compress) $dupToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$dupNear.value; tags=@('field') } | ConvertTo-Json -Compress) $dupToken 'mutation'
+
+# Same tag, unrelated subject: must NOT be shortlisted. This is the false-duplicate
+# trap - two incidents can both be tagged #field.
+$dupUnrelated = Call 'ideas:capture' (@{ title='Espresso grinder burr replacement log' } | ConvertTo-Json -Compress) $dupToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$dupUnrelated.value; tags=@('field') } | ConvertTo-Json -Compress) $dupToken 'mutation'
+
+$dupGet = (Call 'ideas:get' (@{ ideaId=$dupMain.value } | ConvertTo-Json -Compress) $dupToken).value
+$dupIds = @($dupGet.duplicates | ForEach-Object { $_._id })
+Check "a reworded title is shortlisted" ($dupIds -contains $dupNear.value) "ids=$($dupIds -join ',')"
+Check "a shared tag alone is NOT shortlisted" (-not ($dupIds -contains $dupUnrelated.value)) "ids=$($dupIds -join ',')"
+Check "an idea is never its own duplicate" (-not ($dupIds -contains $dupMain.value))
+Check "the shortlist says why" (@($dupGet.duplicates | Where-Object { $_._id -eq $dupNear.value })[0].reason -match 'wording|same words') "reason=$((@($dupGet.duplicates)[0]).reason)"
+Check "the shortlist is small" (@($dupGet.duplicates).Count -le 5) "count=$(@($dupGet.duplicates).Count)"
+Check "the shortlist never leaks the score figure" (-not ((@($dupGet.duplicates) | ForEach-Object { $_.reason }) -join ' ' -match '\d+%')) "reason=$((@($dupGet.duplicates)[0]).reason)"
+
+# And an unrelated idea shortlists nothing, rather than offering the whole lot.
+$dupOther = (Call 'ideas:get' (@{ ideaId=$dupUnrelated.value } | ConvertTo-Json -Compress) $dupToken).value
+Check "an unrelated idea shortlists nothing" (@($dupOther.duplicates).Count -eq 0) "got $(@($dupOther.duplicates).Count)"
+
+# Cross-account isolation.
+$dupForeign = Call 'ideas:get' (@{ ideaId=$dupMain.value } | ConvertTo-Json -Compress) $tokenB 'query'
+Check "another user cannot see the shortlist" ($null -eq $dupForeign.value) "status=$($dupForeign.status)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { v } from 'convex/values';
 import { relatedIdeas } from '../lib/clustering';
+import { duplicateCandidates, candidateReason } from '../lib/duplicates';
 import {
 	normaliseBody,
 	normaliseScore,
@@ -397,11 +398,45 @@ export const get = query({
 			via
 		}));
 
+		/**
+		 * Duplicate shortlist, computed from the sibling rows already fetched above.
+		 *
+		 * Free, because those rows are in hand for `related` regardless - the detail page
+		 * gets a shortlist without a second subscription or the whole lot shipped to the
+		 * browser.
+		 *
+		 * Deliberately NOT the `related` list. Those are grouped by shared INFORMATIVE
+		 * tags, which answers "do these belong to the same conversation". This answers
+		 * "do these two say the same thing", so it ranks on title similarity and refuses
+		 * to shortlist on a shared tag alone - two postmortems both tagged #handover are
+		 * not duplicates.
+		 */
+		const duplicates = duplicateCandidates(
+			{
+				_id: idea._id,
+				title: idea.title,
+				tags: idea.tags,
+				...(idea.description ? { preview: idea.description.slice(0, 240) } : {})
+			},
+			siblingRows.map((row) => ({
+				_id: row._id,
+				title: row.title,
+				tags: row.tags,
+				...(row.description ? { preview: row.description.slice(0, 240) } : {})
+			}))
+		).map((candidate) => ({
+			...toSummary(candidate.idea as Doc<'ideas'>),
+			lexical: candidate.lexical,
+			tagOverlap: candidate.tagOverlap,
+			reason: candidateReason(candidate)
+		}));
+
 		return {
 			idea,
 			tasks: tasks.sort((a, b) => a.position - b.position),
 			events,
-			related: neighbours
+			related: neighbours,
+			duplicates
 		};
 	}
 });

@@ -10,6 +10,8 @@
 	import { page } from '$app/state';
 	import { describeEvent } from '$lib/timeline';
 	import { relativeDay } from '$lib/dates';
+	import AiAction from '$lib/components/AiAction.svelte';
+	import { summariseMessages, duplicateMessages } from '$lib/ai/prompts';
 
 	let { data } = $props();
 
@@ -33,11 +35,15 @@
 	/** A neighbour from the server-side clustering, already summarised. */
 	type RelatedIdea = Idea & { via: string };
 
+	/** A shortlisted near-duplicate, with the reason it was shortlisted. */
+	type DuplicateCandidate = Idea & { lexical: number; tagOverlap: number; reason: string };
+
 	let handle = $state<QueryHandle<{
 		idea: Idea;
 		tasks: IdeaTask[];
 		events: TimelineEvent[];
 		related: RelatedIdea[];
+		duplicates: DuplicateCandidate[];
 	}> | null>(null);
 
 	// The idea itself is always derived straight from the subscription, so a
@@ -64,6 +70,7 @@
 		tasks: IdeaTask[];
 		events: TimelineEvent[];
 		related: RelatedIdea[];
+		duplicates: DuplicateCandidate[];
 	}>(convex.client!, api.ideas.get, {
 			ideaId: id
 		});
@@ -164,6 +171,20 @@
 	 * counts come from `tasks`, which this page already subscribes to.
 	 */
 	const related = $derived(handle?.current?.related ?? []);
+
+	/**
+	 * Ideas worth asking a model about, shortlisted SERVER-SIDE.
+	 *
+	 * Computed in `ideas:get` from rows already fetched for the related panel, so this
+	 * costs nothing extra and never ships the lot to the browser. It is deliberately not
+	 * the `related` list: those share an INFORMATIVE tag, which answers "same
+	 * conversation", whereas this answers "same thing", and shortlisting on a shared tag
+	 * alone is how two different incidents get called duplicates.
+	 *
+	 * Empty is a real answer, and the button then simply does not appear rather than
+	 * inviting a call with nothing to judge.
+	 */
+	const duplicateShortlist = $derived(handle?.current?.duplicates ?? []);
 
 	const maturity = $derived(
 		idea
@@ -403,6 +424,83 @@
 						class="mt-1.5 w-full resize-y rounded-md border border-rule bg-panel px-3 py-2.5 text-[15px] leading-7 text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper"
 					></textarea>
 				</label>
+
+				<!--
+					AI: summary and duplicate check.
+
+					Both run from the browser against the provider the user configured -
+					no server here, no spend from this project. Two rules this UI exists to
+					keep:
+
+					- Nothing fires on its own. A model call costs the user money and sends
+					  their words to a third party, so it happens when they press the button.
+					- The duplicates check sends a SHORTLIST, chosen deterministically, and
+					  only if there is one. Sending the whole lot would be O(n²) in tokens,
+					  and letting a model judge unrelated pairs just because they were in the
+					  batch is how you invent relationships.
+				-->
+				<section class="mt-6 border-t border-rule pt-4" data-ai-panel="true">
+					<h3 class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">AI</h3>
+
+					<AiAction
+						label="Summarise"
+						consent="Sends this idea's title, problem, audience, outcome, trigger and tags."
+						messages={summariseMessages({
+							title: idea.title ?? '',
+							problem: idea.problem,
+							audience: idea.audience,
+							outcome: idea.outcome,
+							trigger: idea.trigger,
+							preview: idea.description?.slice(0, 600),
+							tags: idea.tags ?? []
+						})}
+					/>
+
+					{#if duplicateShortlist.length > 0}
+						<AiAction
+							label="Check for duplicates"
+							consent={`Sends this idea plus ${duplicateShortlist.length} similar title${duplicateShortlist.length === 1 ? '' : 's'}.`}
+							messages={duplicateMessages(
+								{
+									title: idea.title ?? '',
+									problem: idea.problem,
+									outcome: idea.outcome,
+									tags: idea.tags ?? []
+								},
+								duplicateShortlist.map((c) => ({
+									id: c._id,
+									title: c.title ?? '',
+									preview: c.preview,
+									tags: c.tags
+								}))
+							)}
+						/>
+
+						<!--
+							The shortlist is visible, with the reason each was picked and a link
+							to judge it. A model verdict about an idea the user cannot see is a
+							verdict they cannot check.
+						-->
+						<details class="mt-2">
+							<summary class="cursor-pointer font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+								{duplicateShortlist.length} similar title{duplicateShortlist.length === 1 ? '' : 's'} to judge
+							</summary>
+							<ul class="mt-2 space-y-1.5">
+								{#each duplicateShortlist as candidate (candidate._id)}
+									<li class="text-sm">
+										<a
+											href={`/ideas/${candidate._id}`}
+											class="text-ink-2 underline underline-offset-4 hover:text-ink"
+										>
+											{candidate.title}
+										</a>
+										<span class="text-ink-3"> — {candidate.reason}</span>
+									</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+				</section>
 
 				<!--
 					The three fields the product spec asks for in its Inbox model and
