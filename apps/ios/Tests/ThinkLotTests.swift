@@ -73,6 +73,23 @@ final class ThinkLotTests: XCTestCase {
         try await auth.logout()
         XCTAssertNil(try vault.read())
     }
+    func testNewAccountLoginWaitsForOlderRefreshAndOwnsFinalVault() async throws {
+        let vault = MemoryVault(SessionTokens(token: "account-a", refreshToken: "refresh-a"))
+        let transport = InterleavingTransport()
+        let auth = PasswordAuth(url: URL(string: "https://my-lot.convex.cloud")!, vault: vault, transport: transport)
+        let refresh = Task { try await auth.loginFromCache(onIdToken: { _ in }) }
+        try await transport.waitForRefresh()
+        await auth.prepare(email: "b@example.test", password: "password-b", signUp: false)
+        let login = Task { try await auth.login(onIdToken: { _ in }) }
+        for _ in 0..<10 { await Task.yield() }
+        await transport.releaseRefresh()
+        _ = try await refresh.value
+        let result = try await login.value
+        XCTAssertEqual(result.token, "account-b")
+        XCTAssertEqual(try vault.read()?.token, "account-b")
+        let events = await transport.events
+        XCTAssertEqual(events, ["refresh-start", "refresh-finish", "login-b"])
+    }
 }
 
 private final class MemoryVault: TokenVault {
@@ -91,4 +108,27 @@ private actor TestTransport: AuthTransport {
         try await Task.sleep(for: .milliseconds(50))
         return SignInResult(tokens: SessionTokens(token: "new", refreshToken: "refresh-new"))
     }
+}
+
+private actor InterleavingTransport: AuthTransport {
+    var events: [String] = []
+    private var gate: CheckedContinuation<Void, Never>?
+    func call(url: URL, path: String, args: [String: Any], bearer: String?) async throws -> SignInResult {
+        if args["refreshToken"] != nil {
+            events.append("refresh-start")
+            await withCheckedContinuation { gate = $0 }
+            events.append("refresh-finish")
+            return SignInResult(tokens: SessionTokens(token: "account-a-refreshed", refreshToken: "refresh-a-new"))
+        }
+        events.append("login-b")
+        return SignInResult(tokens: SessionTokens(token: "account-b", refreshToken: "refresh-b"))
+    }
+    func waitForRefresh() async throws {
+        for _ in 0..<100 {
+            if gate != nil { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw AppFailure.message("Refresh did not reach test gate.")
+    }
+    func releaseRefresh() { gate?.resume(); gate = nil }
 }

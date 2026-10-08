@@ -13,6 +13,9 @@ struct LotView: View {
                 if tab == 2 { ReviewView() }
                 else {
                     filters
+                    if let error = store.listError {
+                        VStack { Text(error).foregroundStyle(.red); Button("Retry live ideas") { store.load() } }.padding()
+                    }
                     if let page = store.page {
                         if page.truncated {
                             Text("Showing \(page.ideas.count) of \(Int(page.total)) matches. Narrow search or filters to find older ideas.")
@@ -117,6 +120,12 @@ struct ReviewView: View {
     @EnvironmentObject private var store: ThinkLotStore
     var body: some View {
         List {
+            if let error = store.reviewError {
+                Section("Sync interrupted") {
+                    Text(error).foregroundStyle(.red)
+                    Button("Retry live review") { store.load() }
+                }
+            }
             if let review = store.review {
                 if review.truncated { Text("Showing \(review.items.count) of \(Int(review.total)) queued ideas.").font(.caption) }
                 Text("The server reviews a bounded scan of 500 ideas and returns up to 40 items.").font(.caption).foregroundStyle(.secondary)

@@ -9,6 +9,7 @@ actor PasswordAuth: AuthProvider {
     private let vault: any TokenVault
     private let transport: any AuthTransport
     private var pending: Task<SessionTokens, Error>?
+    private var pendingId: UUID?
     private var credentials: (email: String, password: String, flow: String)?
     private var callback: (@Sendable (String?) -> Void)?
     init(url: URL, vault: any TokenVault, transport: any AuthTransport = HTTPAuthTransport()) {
@@ -19,11 +20,19 @@ actor PasswordAuth: AuthProvider {
         credentials = (email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), password, signUp ? "signUp" : "signIn")
     }
     func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> SessionTokens {
+        // Finish any older account refresh before allowing a new account's login
+        // to rotate the vault. Cached-login callers share this operation too.
+        if let pending { _ = try? await pending.value }
         guard let credentials else { throw AppFailure.message("Enter your email and password.") }
         self.credentials = nil // Password stays only in memory for the login request.
         callback = onIdToken
-        let result = try await call("auth:signIn", args: ["provider": "password", "params": ["email": credentials.email, "password": credentials.password, "flow": credentials.flow]])
-        return try save(result)
+        let id = UUID()
+        let operation = Task {
+            try await self.save(try await self.call("auth:signIn", args: ["provider": "password", "params": ["email": credentials.email, "password": credentials.password, "flow": credentials.flow]]))
+        }
+        pending = operation; pendingId = id
+        defer { finish(id) }
+        return try await operation.value
     }
     func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> SessionTokens {
         callback = onIdToken
@@ -32,11 +41,16 @@ actor PasswordAuth: AuthProvider {
         let task = Task { try await self.call("auth:signIn", args: ["refreshToken": stored.refreshToken]) }
         // Saving is part of the shared task, before any waiter resumes.
         let rotation = Task { try await self.save(try await task.value) }
-        pending = rotation
-        defer { pending = nil }
+        let id = UUID()
+        pending = rotation; pendingId = id
+        defer { finish(id) }
         return try await rotation.value
     }
     nonisolated func extractIdToken(from authResult: SessionTokens) -> String { authResult.token }
+    private func finish(_ id: UUID) {
+        // A completed waiter must not clear a newer operation's serialization gate.
+        if pendingId == id { pending = nil; pendingId = nil }
+    }
     func logout() async throws {
         if let pending { _ = try? await pending.value }
         let token = try vault.read()?.token

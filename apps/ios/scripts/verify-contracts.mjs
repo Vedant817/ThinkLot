@@ -29,6 +29,13 @@ assert.match(source, /@State private var baseline: Idea/);
 assert.match(source, /if description != \(baseline\.description \?\? ""\)/);
 assert.match(source, /"ideas:capture", \["title": submitted, "source": "typed"\]\), title == submitted/);
 assert.match(source, /"tasks:addTask", \["ideaId": ideaId, "title": submitted\]\), taskTitle == submitted/);
+assert.match(source, /restoring = true\s+busy = true/);
+assert.match(source, /if let pending \{ _ = try\? await pending.value \}/);
+assert.match(source, /if pendingId == id/);
+assert.match(source, /\}\.disabled\(store.busy\)\.navigationTitle\("Edit idea"\)/);
+assert.match(source, /interactiveDismissDisabled\(store.busy\)/);
+assert.match(source, /Retry live updates/);
+assert.match(source, /Retry live review/);
 for (const arg of ['archivedOnly', 'favoriteOnly', 'sortPriority']) {
   assert.match(source, new RegExp(`"${arg}":`));
   assert.match(readFileSync(path.join(root, 'src/convex/ideas.ts'), 'utf8'), new RegExp(`${arg}: v.optional\\(v.boolean\\(\\)\\)`));

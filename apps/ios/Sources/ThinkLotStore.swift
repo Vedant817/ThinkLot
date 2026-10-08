@@ -7,6 +7,8 @@ final class ThinkLotStore: ObservableObject {
     @Published var signedIn = false
     @Published var busy = false
     @Published var error: String?
+    @Published var listError: String?
+    @Published var reviewError: String?
     @Published var page: IdeaPage?
     @Published var review: ReviewPage?
     @Published var connection = "Connecting"
@@ -47,7 +49,8 @@ final class ThinkLotStore: ObservableObject {
     func restore() async {
         guard !busy, !restoring else { return }
         restoring = true
-        defer { restoring = false }
+        busy = true
+        defer { restoring = false; busy = false }
         let result = await client.loginFromCache()
         switch result {
         case .success: signedIn = true; load()
@@ -57,7 +60,7 @@ final class ThinkLotStore: ObservableObject {
         }
     }
     func signIn(email: String, password: String, signUp: Bool) async {
-        guard !busy else { return }
+        guard !busy, !restoring else { return }
         busy = true; error = nil
         defer { busy = false }
         await provider.prepare(email: email, password: password, signUp: signUp)
@@ -82,12 +85,14 @@ final class ThinkLotStore: ObservableObject {
         generation += 1
         listSubscription = nil; reviewSubscription = nil
         page = nil; review = nil
+        listError = nil; reviewError = nil
     }
     func load() {
         guard signedIn else { return }
         generation += 1
         let current = generation
         page = nil; review = nil
+        listError = nil; reviewError = nil
         var args: [String: ConvexEncodable?] = [
             "archivedOnly": archived, "favoriteOnly": favorites,
             "sortPriority": prioritySort, "search": search
@@ -99,7 +104,10 @@ final class ThinkLotStore: ObservableObject {
         listSubscription = client.subscribe(to: "ideas:list", with: args, yielding: IdeaPage.self)
             .receive(on: DispatchQueue.main).sink(receiveCompletion: { [weak self] result in
                 guard let self, self.generation == current else { return }
-                if case .failure(let failure) = result { self.error = failure.localizedDescription }
+                if case .failure(let failure) = result {
+                    self.listError = failure.localizedDescription
+                    self.error = failure.localizedDescription
+                }
             }, receiveValue: { [weak self] page in
                 guard let self, self.generation == current else { return }
                 self.page = page
@@ -107,7 +115,10 @@ final class ThinkLotStore: ObservableObject {
         reviewSubscription = client.subscribe(to: "review:queue", yielding: ReviewPage.self)
             .receive(on: DispatchQueue.main).sink(receiveCompletion: { [weak self] result in
                 guard let self, self.generation == current else { return }
-                if case .failure(let failure) = result { self.error = failure.localizedDescription }
+                if case .failure(let failure) = result {
+                    self.reviewError = failure.localizedDescription
+                    self.error = failure.localizedDescription
+                }
             }, receiveValue: { [weak self] review in
                 guard let self, self.generation == current else { return }
                 self.review = review

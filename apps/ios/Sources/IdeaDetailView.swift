@@ -19,6 +19,12 @@ struct IdeaDetailView: View {
         Group {
             if let detail {
                 Form {
+                    if let error {
+                        Section("Sync interrupted") {
+                            Text(error).foregroundStyle(.red)
+                            Button("Retry live updates") { self.error = nil; retry += 1 }
+                        }
+                    }
                     Section(detail.idea.plate) {
                         Text(detail.idea.title).font(.title2.bold())
                         if let description = detail.idea.description { Text(description) }
@@ -158,7 +164,7 @@ struct IdeaEditor: View {
                     if hasRevisit { DatePicker("Date", selection: $revisit, displayedComponents: .date) }
                 }
                 if let error = store.error { Text(error).foregroundStyle(.red) }
-            }.navigationTitle("Edit idea")
+            }.disabled(store.busy).navigationTitle("Edit idea")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(store.busy) }
                 ToolbarItem(placement: .confirmationAction) {
@@ -173,7 +179,7 @@ struct IdeaEditor: View {
                     }.disabled(store.busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 300 || description.count > 20000 || problem.count > 20000)
                 }
             }
-        }
+        }.interactiveDismissDisabled(store.busy)
     }
 }
 
