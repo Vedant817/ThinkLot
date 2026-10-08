@@ -197,8 +197,15 @@ happily confirm a new feature is unusable by everyone it was not written for.
 **Verified by execution**
 - Backend: `npm run verify:e2e` — 132 live checks against the dev deployment,
   including every negative authorization case. `svelte-check` clean.
-- Capture/editor preservation: `scripts/verify-capture-regressions.ts`, offline.
-- Keyboard shortcuts: `npm run verify:shortcuts` — 36 checks.
+- Offline suites: `npm run verify:offline` — scoring, capture/editor preservation,
+  list filters, URL-backed filters, 43 keyboard shortcuts, 16 Swift contracts.
+- **Rendered web UI: `npm run verify:web` — 56 checks in real Chrome.** Signs in
+  with a throwaway account, walks every route, and screenshots each. Asserts the
+  dashboard's counts against reality, that the three spec fields hold their saved
+  values, that a filtered lot survives a reload *and* an idea round trip, that
+  chords navigate under trusted key events, that `/` focuses capture, that typing
+  in the capture box suppresses shortcuts, and that there is no horizontal
+  overflow at 390px.
 - React Native client: typecheck and lint clean, Expo Doctor 21/21, Android and
   iOS Hermes exports pass. Exports prove bundling, not native rendering.
 - **Android on device** (API 36, 1080x2400): two release APKs built with real
@@ -211,17 +218,44 @@ happily confirm a new feature is unusable by everyone it was not written for.
 - Swift client: a static contract check over 16 backend functions. Compilation,
   simulator and device testing need Apple SDKs and are unverified on this host.
 
-**Not verified — needs a browser or a device**
-- **Any rendered web UI.** No browser has ever been attached to this session, so
-  every web claim above is compiled output, HTTP responses or pure-function tests.
-  The app is a client-rendered shell, so even its SSR output proves nothing about
-  what is inside a conditional branch. This is the largest remaining gap and it is
-  not closeable from the toolchain available here.
-- The new Dashboard, the list view, and the three spec fields — as rendered pixels
-  on the web. The spec fields *are* verified on Android; the web half is not.
-- The entire iOS journey.
+### What a browser was finally worth
+
+The desktop browser tool reported `browser.disconnected` for this entire session,
+so the web UI was unverified for most of the project's life. Rather than accept
+that, `scripts/browser-harness.ts` drives the Chrome already installed on this
+machine over the DevTools protocol — Node 24 has a global `WebSocket`, so it needs
+no new dependency and no test runner.
+
+The first bug it found would have been caught by nobody else, ever:
+
+> The capture textarea had `autofocus`. So `document.activeElement` was that
+> textarea on load, so the `isTyping()` guard in the layout's key handler returned
+> early for every keystroke, so **all 43 keyboard shortcuts did nothing on the lot
+> page** — including `/`, which could not focus capture either, because capture was
+> already focused.
+
+The offline shortcut suite passed throughout, because it injects its own handler
+and never has focus. The `isTyping` unit tests passed throughout, because they
+hand it an explicit element. Nothing had ever asked whether a shortcut works on a
+page that has just loaded.
+
+The second was the search field collapsing to ~30px at 390px — unusable, on the
+very screen the spec asks to "scan and search quickly".
+
+Three harness mistakes are recorded in the files because each produced a
+*confident false failure*: `innerText` returns text as rendered, so uppercase
+styling breaks a lowercase needle; `innerText` cannot see form control values at
+all, so a fully populated textarea reads as empty; and waiting for the first
+expected string races the websocket, because page chrome paints before data does.
+
+**Not verified**
+- The entire iOS journey — compilation, simulator, device and VoiceOver all need
+  Apple SDKs and a Mac.
+- Any physical device. Android evidence is an emulator, which is no substitute for
+  a thumb, a real battery, or OEM background-process behaviour.
 - A production deployment of any kind.
-- Anything on a physical device rather than an emulator.
+- Long-lived sessions, offline/reconnect, and concurrent multi-client editing. The
+  `reconcile` aliasing fix is covered by an offline test, not by two clients racing.
 
 **Known and accepted, documented rather than hidden**
 - Account enumeration. Convex Auth v1 rethrows distinguishable errors from a
