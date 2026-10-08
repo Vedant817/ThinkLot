@@ -4,7 +4,7 @@
 	import QueryError from '$lib/components/QueryError.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { api } from '../../../convex/_generated/api';
-	import { displayScore, lotPlate, priorityScore, scoreBand, MAX_SCORE } from '$lib/scoring';
+	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	/**
@@ -213,7 +213,7 @@
 						<span class="block h-1.5 rounded-full bg-rule">
 							<span
 								class="block h-full rounded-full {BAND_BAR[band]}"
-								style={`width:${Math.max(2, Math.min(100, ((score ?? 0) / MAX_SCORE) * 100))}%`}
+								style={`width:${scoreBarWidth(score)}%`}
 							></span>
 						</span>
 					</span>

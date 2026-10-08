@@ -4,7 +4,7 @@
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../../convex/_generated/api';
-	import { displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
+	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask } from '$lib/types';
 
 	let { data } = $props();
@@ -412,7 +412,7 @@
 					<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
 						<div
 							class="h-full rounded-full transition-all {BAND_BAR[band]}"
-							style={`width:${score === null ? 0 : Math.min(100, (score / 40) * 100)}%`}
+							style={`width:${scoreBarWidth(score)}%`}
 						></div>
 					</div>
 					<p class="mt-2 font-mono text-[11px] text-ink-3">(impact × confidence) ÷ effort</p>

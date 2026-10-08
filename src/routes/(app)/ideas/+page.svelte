@@ -5,7 +5,7 @@
 	import { convex } from '$lib/convex/client.svelte';
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../convex/_generated/api';
-	import { byPriority, displayScore, lotPlate, priorityScore, scoreBand } from '$lib/scoring';
+	import { byPriority, displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	let search = $state('');
@@ -359,7 +359,7 @@
 						<span class="h-1 w-full overflow-hidden rounded-full bg-rule">
 							<span
 								class="block h-full rounded-full transition-all {BAND_BAR[band]}"
-								style={`width:${score === null ? 6 : Math.min(100, (score / 40) * 100)}%`}
+								style={`width:${scoreBarWidth(score)}%`}
 							></span>
 						</span>
 					</div>

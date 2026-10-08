@@ -24,6 +24,29 @@ export type Scored = {
  */
 export const MAX_SCORE = 100;
 
+/**
+ * Width, as a percentage, for drawing `score` as a bar.
+ *
+ * Three screens draw the score as a length and all three were dividing by 40,
+ * which put the ceiling at 62% and squashed every real score into the first
+ * fifth of the track. The scale was being re-derived per call site, which is
+ * exactly why it was wrong in three places at once.
+ *
+ * A scored idea never renders as zero width: a small floor keeps "scored 0.2"
+ * visually distinct from "not scored yet", which is a meaningfully different
+ * state. An unscored idea renders at genuinely 0 - there is no bar to draw, and
+ * drawing a stub for it would claim a judgement nobody has made.
+ */
+export function scoreBarWidth(score: number | null): number {
+	// Not just `=== null`. `Math.max(2, Math.min(100, NaN))` is NaN, which reaches
+	// the style attribute as `width:NaN%` - invalid CSS the browser discards,
+	// leaving a bar whose width depends on whatever was in the attribute before.
+	// priorityScore already refuses non-finite inputs, so this is belt and braces
+	// for a caller doing its own arithmetic.
+	if (score === null || !Number.isFinite(score)) return 0;
+	return Math.max(2, Math.min(100, (score / MAX_SCORE) * 100));
+}
+
 export type ScoreInput = Scored & { favorite?: boolean; archived?: boolean };
 
 export function priorityScore(idea: Scored): number | null {

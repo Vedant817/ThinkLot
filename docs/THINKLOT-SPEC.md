@@ -71,8 +71,16 @@ Drop ideas here in 30 seconds. You can make them "beautiful" later.
 
 - [x] Setup SvelteKit project
 - [x] Add Tailwind CSS
-- [x] Create base folders (`/components /lib /routes /stores /types`)
-- [x] Define `Idea` type (`src/types/Idea.ts`)
+- [~] Create base folders (`/components /lib /routes /stores /types`)
+- [~] Define `Idea` type (`src/types/Idea.ts`)
+
+> Two boxes corrected on audit. `/components`, `/lib` and `/routes` exist as
+> specified. `/stores` exists but is empty — Svelte 5 runes replaced the store
+> pattern this project would have used, so nothing was ever put there. `/types`
+> does not exist: the `Idea` type is at `src/lib/types.ts`, alongside the scoring
+> and status constants it shares a module with. Both are deliberate and neither is
+> a missing feature, but a ticked box is a claim about the filesystem and this one
+> was not true.
 - [x] Basic list + create form
 - ~~Create store (`src/stores/ideas.store.ts`)~~ — **not built, deliberately.** Convex
   owns the state; a second client-side store would duplicate it and immediately
@@ -121,7 +129,13 @@ Drop ideas here in 30 seconds. You can make them "beautiful" later.
 
 - [x] Keyboard shortcuts
 - [x] Dark mode
-- [x] Deploy
+- [ ] Deploy
+
+> **This box used to be ticked and was wrong.** Nothing has been deployed to
+> production — Convex production is billed separately, and deployment is the
+> owner's decision, not an implementation step. Everything below is preparation.
+> A checkbox that says "done" for work that was deliberately not performed is
+> worse than an empty one, because it stops anyone from asking.
 
 > **Deploy status:** the repository is deploy-ready (multi-stage Dockerfile,
 > `.env.example`, `/healthz` that returns 503 on a missing `PUBLIC_CONVEX_URL`,
@@ -139,7 +153,7 @@ section 6). Week-level checkboxes are too coarse to be trustworthy on their own.
 What follows is the honest position.
 
 **Verified by execution**
-- Backend: `npm run verify:e2e` — 128 live checks against the dev deployment,
+- Backend: `npm run verify:e2e` — 132 live checks against the dev deployment,
   including every negative authorization case. `svelte-check` clean.
 - Capture/editor preservation: `scripts/verify-capture-regressions.ts`, offline.
 - Keyboard shortcuts: `npm run verify:shortcuts` — 36 checks.
