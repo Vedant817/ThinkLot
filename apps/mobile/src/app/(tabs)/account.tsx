@@ -3,6 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
 import { errorMessage } from "../../lib/auth";
+import { Transfer } from "../../components/transfer";
 import {
   Button,
   Failure,
@@ -41,6 +42,14 @@ export default function Account() {
         your device.
       </Note>
       <Failure message={error} />
+
+      {/*
+        Import and export live here rather than on their own tab: they are about the
+        user's data, which is what this screen is about, and a fifth tab for something
+        used twice a year would be a worse trade.
+      */}
+      <Transfer />
+
       <Button
         title={busy ? "Signing out…" : "Sign out"}
         disabled={busy}

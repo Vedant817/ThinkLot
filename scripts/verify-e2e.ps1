@@ -588,6 +588,102 @@ Check "the list ships a preview, not the transcript" ($null -ne $wisprRow.previe
 $wisprForeign = Call 'ideas:get' (@{ ideaId=$wispr.value } | ConvertTo-Json -Compress) $tokenB 'query'
 Check "the dictated capture is not readable by another user" ($null -eq $wisprForeign.value) "status=$($wisprForeign.status)"
 
+Write-Host "`n== 11m. Import and export (the promise that your ideas are yours) ==" -ForegroundColor Cyan
+# Its own account: an export's correctness depends on the WHOLE lot, and reusing the main
+# QA account makes "archived ideas are included" depend on whatever earlier sections left
+# behind.
+$pxEmail = "qa-portability-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$pxToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$pxEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+# One active idea with a checklist, one ARCHIVED, one dictated with a transcript.
+$pxActive = Call 'ideas:capture' (@{ title='Exported active idea'; description='kept notes'; problem='a real problem'; audience='field crews'; outcome='no lost note'; trigger='a postmortem'; source='dictated'; transcript='walking with Priya and she said empty slots cost money' } | ConvertTo-Json -Compress) $pxToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$pxActive.value; tags=@('export','test') } | ConvertTo-Json -Compress) $pxToken 'mutation'
+$null = Call 'tasks:addTask' (@{ ideaId=$pxActive.value; title='first step' } | ConvertTo-Json -Compress) $pxToken 'mutation'
+$null = Call 'tasks:addTask' (@{ ideaId=$pxActive.value; title='second step' } | ConvertTo-Json -Compress) $pxToken 'mutation'
+
+$pxArchived = Call 'ideas:capture' (@{ title='Exported archived idea' } | ConvertTo-Json -Compress) $pxToken 'mutation'
+# `$true` written out as `True`. It has to be a JSON literal here, not a PowerShell
+# one: the helper takes a JSON STRING, so a PowerShell `$true` would be interpolated as
+# the six characters "True" - valid JSON by luck, but it made the archive call fail and
+# the failure surfaced as a Server Error three checks later, nowhere near the cause.
+$null = Call 'ideas:setArchived' (@{ ideaId=$pxArchived.value; archived=$true } | ConvertTo-Json -Compress) $pxToken 'mutation'
+
+$pxExport = (Call 'portability:exportAll' '{}' $pxToken 'query').value
+Check "the export answers" ($null -ne $pxExport.ideas) "-> $((Call 'portability:exportAll' '{}' $pxToken 'query').errorMessage)"
+Check "an export is not truncated at this size" (-not $pxExport.truncated)
+
+# THE POINT OF THE WHOLE FEATURE. `ideas:list` excludes archived, so an export that
+# reused that query would quietly lose ideas the user had kept.
+$pxTitles = @($pxExport.ideas | ForEach-Object { $_.title })
+Check "export includes ACTIVE ideas" ($pxTitles -contains 'Exported active idea') "titles=$($pxTitles -join ', ')"
+Check "export includes ARCHIVED ideas too" ($pxTitles -contains 'Exported archived idea') "titles=$($pxTitles -join ', ')"
+Check "export reports how many were archived" ($pxExport.archivedCount -eq 1) "archived=$($pxExport.archivedCount)"
+
+$pxActiveRow = @($pxExport.ideas | Where-Object { $_.title -eq 'Exported active idea' })[0]
+Check "export keeps the checklist" (@($pxActiveRow.tasks).Count -eq 2) "tasks=$(@($pxActiveRow.tasks).Count)"
+Check "export keeps the dictated transcript verbatim" ($pxActiveRow.transcript -like '*walking with Priya*') "-> $($pxActiveRow.transcript)"
+Check "export keeps all three core fields" ($pxActiveRow.problem -and $pxActiveRow.audience -and $pxActiveRow.outcome) "p=$($pxActiveRow.problem) a=$($pxActiveRow.audience) o=$($pxActiveRow.outcome)"
+Check "export keeps tags" (@($pxActiveRow.tags) -contains 'export') "tags=$(@($pxActiveRow.tags) -join ',')"
+
+# And it must not be readable by anyone else. An export is the most sensitive thing this
+# app can produce - the whole lot in one file - so the real assertion is that it returns
+# the CALLER's lot, not an error.
+#
+# The first version asserted `status -eq 'error'` for another account, which is wrong
+# and was passing for the wrong reason: exportAll is scoped to `userId`, so a signed-in
+# stranger legitimately succeeds with THEIR OWN (empty) lot. Asserting an error would
+# have forced a fake-account endpoint that refuses valid use.
+$pxForeign = Call 'portability:exportAll' '{}' $tokenB 'query'
+Check "another account exports only their OWN (empty) lot" (($pxForeign.status -eq 'success') -and (@($pxForeign.value.ideas).Count -eq 0)) "status=$($pxForeign.status) count=$(@($pxForeign.value.ideas).Count)"
+$pxUnauth = Call 'portability:exportAll' '{}' $null 'query'
+Check "an export with no session is refused" ($pxUnauth.status -eq 'error') "status=$($pxUnauth.status)"
+
+# Import into a THIRD account, so the source and destination cannot overlap.
+$pxImpEmail = "qa-import-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$pxImpToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$pxImpEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+# Built as a PowerShell object and piped, never via a format string. The first version
+# interpolated the entries into a string template, which emitted `[object Object]` and
+# then failed inside the JSON parser - and this repo has hit `$effect`-style
+# interpolation problems in PowerShell before, in the other direction.
+$pxEntries = @(
+  @{ title='Imported from markdown'; description='body text'; problem='p'; audience='a'; outcome='o'; trigger='t'; tags=@('one','two') },
+  @{ title='Second imported idea' }
+)
+$pxImport = Call 'portability:importMany' (@{ entries=$pxEntries } | ConvertTo-Json -Depth 8 -Compress) $pxImpToken 'mutation'
+Check "an import accepts a batch" ($pxImport.status -eq 'success') "-> $($pxImport.errorMessage)"
+Check "both entries imported" ($pxImport.value.imported -eq 2) "imported=$($pxImport.value.imported)"
+
+$pxImpList = (Call 'ideas:list' (@{ limit=20 } | ConvertTo-Json -Compress) $pxImpToken 'query').value
+$pxImpRow = @($pxImpList.ideas | Where-Object { $_.title -eq 'Imported from markdown' })[0]
+Check "an imported idea is a real idea" ($null -ne $pxImpRow) "titles=$((@($pxImpList.ideas) | ForEach-Object { $_.title }) -join ', ')"
+Check "imported ideas are NOT pre-decided as done" ($pxImpRow.status -eq 'inbox') "status=$($pxImpRow.status)"
+Check "an imported idea keeps its fields" ($pxImpRow.coreFields -eq 3) "coreFields=$($pxImpRow.coreFields)"
+Check "an imported idea keeps its tags" (@($pxImpRow.tags) -contains 'two') "tags=$(@($pxImpRow.tags) -join ',')"
+
+# A LOT plate must never be reused - the same counter capture uses.
+$pxPlate = "LOT-{0:d4}" -f [int]$pxImpRow.seq
+Check "an imported idea gets a real LOT plate" ($pxImpRow.seq -ge 1) "seq=$($pxImpRow.seq) plate=$pxPlate"
+
+# Re-importing the same titles must REPORT them, not silently double the lot.
+$pxAgain = Call 'portability:importMany' (@{ entries=@(
+  @{ title='Imported from markdown' },
+  @{ title='Imported from markdown' },
+  @{ title='Genuinely different idea' }
+)} | ConvertTo-Json -Depth 8 -Compress) $pxImpToken 'mutation'
+Check "a duplicate import adds only the genuinely new idea" ($pxAgain.value.imported -eq 1) "imported=$($pxAgain.value.imported)"
+Check "duplicates are reported with a reason" (@($pxAgain.value.skipped).Count -eq 2) "skipped=$((@($pxAgain.value.skipped) | ForEach-Object { $_.reason }) -join ' | ')"
+Check "a skip names the idea it collides with" ((@($pxAgain.value.skipped)[0].reason) -like '*looks like*') "-> $(@($pxAgain.value.skipped)[0].reason)"
+
+# An empty import is not an error.
+$pxEmpty = Call 'portability:importMany' (@{ entries=@() } | ConvertTo-Json -Depth 6 -Compress) $pxImpToken 'mutation'
+Check "an empty import is accepted and does nothing" ($pxEmpty.status -eq 'success' -and $pxEmpty.value.imported -eq 0) "-> $($pxEmpty.errorMessage)"
+
+# An import must not be usable to write into another account's lot: the endpoints are
+# ownership-gated, so an unauthenticated import must fail outright.
+$pxUnauthImport = Call 'portability:importMany' (@{ entries=@(@{ title='should never exist' }) } | ConvertTo-Json -Depth 6 -Compress) $null 'mutation'
+Check "an import with no session is refused" ($pxUnauthImport.status -eq 'error') "status=$($pxUnauthImport.status)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

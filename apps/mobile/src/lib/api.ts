@@ -55,3 +55,26 @@ export type {
   CaptureSource,
   ParsedCapture,
 } from "../../../../src/lib/capture";
+/*
+ * Import and export, shared with the web client.
+ *
+ * The export/import FORMATS live here, not on each platform, because the promise they
+ * make - your ideas leave as readable text and come back intact - is only worth
+ * anything if it is the same promise on both. Two implementations would drift, and the
+ * failure would be silent: a backup taken on the phone that the web app cannot read.
+ */
+export {
+  toNotionMarkdown,
+  toCsv,
+  toBackupJson,
+  exportFilename,
+  parseMarkdownImport,
+  parseCsvImport,
+  findImportDuplicates,
+  partitionForImport,
+} from "../../../../src/lib/portability";
+export type {
+  PortableIdea,
+  ImportCandidate,
+  ImportResult,
+} from "../../../../src/lib/portability";
