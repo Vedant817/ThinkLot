@@ -40,6 +40,21 @@
 	let sortBy = $state<'capture' | 'priority'>('capture');
 
 	/**
+	 * Which of the spec's two views this is.
+	 *
+	 * Section 5.2 asks for both, with different fields on purpose: "list view —
+	 * scan and search quickly, must show title, status, tags, favorite" against
+	 * "card view — evaluate ideas visually, must show title, short description,
+	 * tags, status". The description is the whole difference, so the list drops it
+	 * and gets denser rather than being the card with the preview hidden.
+	 *
+	 * There was no toggle and no list view at all for most of the project, while
+	 * the roadmap showed "Card view + list view toggle" as done: what existed was
+	 * one layout, which happened to satisfy the card half of that line.
+	 */
+	let view = $state<'cards' | 'list'>('cards');
+
+	/**
 	 * Subscription handles are deliberately NOT `$state`.
 	 *
 	 * The previous version made them reactive and then disposed the old one
@@ -273,6 +288,36 @@
 				Archive
 			</button>
 		</div>
+
+		<!--
+			View toggle, kept outside the sort group above on purpose: it changes the
+			shape of the results rather than the order of them, and putting it in the
+			same visual cluster would invite people to read it as a third sort option.
+		-->
+		<div class="flex items-center gap-1" role="group" aria-label="Result layout">
+			<button
+				type="button"
+				onclick={() => (view = 'list')}
+				aria-pressed={view === 'list'}
+				class="rounded px-2 py-1 font-mono text-[11px] tracking-wider uppercase"
+				class:bg-sunk={view === 'list'}
+				class:text-ink={view === 'list'}
+				class:text-ink-3={view !== 'list'}
+			>
+				List
+			</button>
+			<button
+				type="button"
+				onclick={() => (view = 'cards')}
+				aria-pressed={view === 'cards'}
+				class="rounded px-2 py-1 font-mono text-[11px] tracking-wider uppercase"
+				class:bg-sunk={view === 'cards'}
+				class:text-ink={view === 'cards'}
+				class:text-ink-3={view !== 'cards'}
+			>
+				Cards
+			</button>
+		</div>
 	</div>
 
 	{#if allTags.length > 0}
@@ -337,6 +382,85 @@
 				Showing the {lot.length} most recent of {totalIdeas}. Older ideas need search or tags.
 			</p>
 		{/if}
+
+		<!--
+			LIST VIEW - spec 5.2: "scan and search quickly. Must show: title,
+			status, tags, favorite."
+
+			One line per idea, and the description is gone rather than truncated.
+			That is the point of the view: with a preview on every row, the page is
+			three times taller than the backlog and scanning it means scrolling past
+			prose. The score is kept but demoted to a bare number, and the stage
+			promote/archive buttons are dropped - they are hover-revealed in card
+			view and would be invisible here. Star stays, because it is a state the
+			spec names for this view and it is the one control you reach for while
+			scanning.
+		-->
+		{#if view === 'list'}
+			<ul class="rule-y overflow-hidden rounded-lg border border-rule bg-paper">
+				{#each visible as idea (idea._id)}
+					{@const score = priorityScore(idea)}
+					<li
+						class="group flex items-center gap-3 px-3 py-1.5 transition-colors hover:bg-panel"
+						aria-busy={rowBusy === idea._id}
+					>
+						<span
+							class="w-16 shrink-0 font-mono text-[11px] font-bold tracking-wider"
+							class:text-lot={score !== null}
+							class:text-ink-3={score === null}
+							title={`Priority score ${displayScore(score)}`}
+						>
+							{lotPlate(idea.seq)}
+						</span>
+
+						<a
+							href={`/ideas/${idea._id}`}
+							class="min-w-0 flex-1 truncate text-sm text-ink underline-offset-4 hover:underline"
+						>
+							{idea.title}
+						</a>
+
+						<StatusPill status={idea.status} />
+
+						<span class="hidden min-w-0 max-w-40 shrink-0 truncate sm:block">
+							{#each idea.tags as tag (tag)}
+								<button
+									type="button"
+									onclick={() => toggleTag(tag)}
+									aria-pressed={tagFilter.includes(tag)}
+									class="-my-1 -ml-1 inline-flex min-h-6 min-w-6 items-center rounded px-1 font-mono text-[11px] text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+								>
+									#{tag}
+								</button>
+							{/each}
+						</span>
+
+						<span
+							class="w-8 shrink-0 text-right font-mono text-[11px]"
+							class:text-lot={score !== null}
+							class:text-ink-3={score === null}
+							data-numeric="true"
+						>
+							{displayScore(score)}
+						</span>
+
+						<button
+							type="button"
+							onclick={() => toggleFavorite(idea)}
+							aria-pressed={idea.favorite}
+							aria-label={idea.favorite ? 'Remove star' : 'Star this idea'}
+							class="shrink-0 rounded px-1.5 py-1 text-sm transition-colors hover:bg-sunk"
+							class:text-lot={idea.favorite}
+							class:text-ink-3={!idea.favorite}
+						>
+							{idea.favorite ? '★' : '☆'}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+		<!-- CARD VIEW - spec 5.2: "evaluate ideas visually. Must show: title,
+		     short description, tags, status." -->
 		<ul class="rule-y overflow-hidden rounded-lg border border-rule bg-paper">
 			{#each visible as idea (idea._id)}
 				{@const score = priorityScore(idea)}
@@ -451,5 +575,6 @@
 				</li>
 			{/each}
 		</ul>
+		{/if}
 	{/if}
 </div>
