@@ -1,0 +1,2 @@
+// xcconfig treats // as a comment; use this syntax for the URL.
+THINKLOT_CONVEX_URL = https:/$()/YOUR_DEPLOYMENT.convex.cloud

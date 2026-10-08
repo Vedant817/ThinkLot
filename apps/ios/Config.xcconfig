@@ -1,0 +1,3 @@
+// Copy Config.local.xcconfig.example to Config.local.xcconfig and set your deployment.
+THINKLOT_CONVEX_URL =
+#include? "Config.local.xcconfig"
