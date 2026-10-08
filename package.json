@@ -21,6 +21,7 @@
     "verify:clustering": "vite-node scripts/verify-clustering.ts",
     "verify:roadmap": "vite-node scripts/verify-roadmap.ts",
     "verify:ai": "vite-node scripts/verify-ai.ts",
+    "verify:parity": "vite-node scripts/verify-mobile-parity.ts",
     "verify:web": "vite-node scripts/verify-web.ts",
     "verify:authproxy": "vite-node scripts/verify-authproxy.ts",
     "verify:concurrency": "vite-node scripts/verify-concurrency.ts",

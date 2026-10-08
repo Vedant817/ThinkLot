@@ -107,3 +107,25 @@ behind the ones that do not.
       a `.svelte` file's script cannot be imported. Kept in sync by hand.
 - [ ] No CI. Everything here has been run by hand, by one machine, which is the
       weakest link in every claim on this page.
+
+---
+
+## Mobile
+
+- [x] **Contract drift guard** (`npm run verify:parity`) - `scripts/verify-mobile-parity.ts`.
+      The iOS contract suite checked that every Convex function Swift NAMES still
+      exists, and that every argument it SENDS still exists. It said nothing about the
+      RESPONSE, so a required field dropped from `toSummary` would have kept every
+      contract green while the iOS app failed to decode anything - and the failure would
+      have looked like an auth problem. Now every non-optional `Decodable` field is
+      checked against the live deployment, plus the shared `Idea` type, because the
+      Android client has no type of its own and so cannot catch drift with `tsc`.
+- [x] **Android parity: maturity, related, history** - all three were already crossing
+      the wire from `ideas:get` and were read by nothing but the web client. The lot card
+      now shows maturity, computed from the `coreFields` COUNT rather than the three
+      free-text fields a list row omits - the exact bug the web client had.
+- [ ] **Android: AI provider settings** - the web client has bring-your-own-key across
+      eight providers. Not yet on mobile. Needs a keychain, not `sessionStorage`.
+- [ ] **iOS: spec fields `audience` / `outcome` / `trigger`** - `apps/ios/Sources/Models.swift`
+      has no `audience`, `outcome` or `trigger`, so the iOS detail screen cannot show three
+      of the six Inbox fields the spec asks for. Cannot be compiled on this host.

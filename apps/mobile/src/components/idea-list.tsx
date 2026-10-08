@@ -8,6 +8,8 @@ import {
   displayScore,
   IDEA_STATUSES,
   lotPlate,
+  maturityLabel,
+  maturityOf,
   priorityScore,
 } from "../lib/api";
 import { useLiveQuery } from "../lib/live-query";
@@ -219,6 +221,27 @@ export function IdeaList({
                 }}
               >
                 {displayScore(priorityScore(item))}
+              </Text>
+              {/*
+                Maturity beside the score, because they answer different halves of
+                "what deserves attention": the score says which idea is worth most,
+                maturity says how close it is to being actionable. A high score on an
+                undeveloped idea is the one worth noticing.
+
+                Computed from `coreFields` rather than the three free-text fields,
+                because a LIST row omits those - so reading them here would make every
+                idea in the lot report as an undeveloped spark. That is not a
+                hypothetical: the web client had exactly that bug until the count was
+                added to the summary.
+              */}
+              <Text
+                style={{
+                  color: c.muted,
+                  fontFamily: mono,
+                  fontSize: 12,
+                }}
+              >
+                {maturityLabel(maturityOf(item).stage).toLowerCase()}
               </Text>
               {item.favorite ? <Feather name="star" size={13} color={c.lot} /> : null}
             </View>

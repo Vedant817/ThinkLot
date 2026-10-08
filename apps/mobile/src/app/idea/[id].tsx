@@ -10,6 +10,10 @@ import {
   lotPlate,
   priorityScore,
   displayScore,
+  maturityOf,
+  maturityLabel,
+  describeEvent,
+  relativeDay,
 } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
 import { errorMessage } from "../../lib/auth";
@@ -30,6 +34,16 @@ export default function IdeaDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   // Convex ids can be passed through a deep link; query errors stay visible.
   const query = useLiveQuery(api.ideas.get, { ideaId: id as Id<"ideas"> });
+  /*
+   * Parity with the web client, reading the fields `ideas:get` already returns.
+   *
+   * `related` and `events` were being computed server-side and shipped in the response
+   * while this screen ignored them, so an Android user had no timeline and no idea of
+   * what else in the lot said something similar. Nothing here is new plumbing - it is
+   * data that was already crossing the wire.
+   */
+  const related = query.data?.related ?? [];
+  const events = query.data?.events ?? [];
   const update = useMutation(api.ideas.update);
   const status = useMutation(api.ideas.setStatus);
   const favorite = useMutation(api.ideas.toggleFavorite);
@@ -284,6 +298,23 @@ export default function IdeaDetail() {
                 ? "Text edits are waiting to be saved."
                 : "Text saved. Other controls save immediately."}
             </Note>
+            {/*
+                Maturity, and the one thing worth doing next.
+
+                Placed above the lifecycle buttons because it is the more useful
+                question: the stage says where the idea sits in a workflow the user
+                picked, while this says how close it is to being actionable at all -
+                and "what is missing next" is the question worth asking of a parked
+                idea.
+            */}
+            <Label>How developed</Label>
+            <Note>
+              {maturityLabel(maturityOf(idea).stage)}
+              {maturityOf(idea).next ? ` — next: ${maturityOf(idea).next.toLowerCase()}` : ""}
+            </Note>
+            {maturityOf(idea).missing.length > 0 ? (
+              <Note>Still missing: {maturityOf(idea).missing.join(", ")}</Note>
+            ) : null}
             <Label>Stage</Label>
             <View style={styles.row}>
               {IDEA_STATUSES.map((stage) => (
@@ -438,7 +469,44 @@ export default function IdeaDetail() {
                 }}
               />
             )}
-            <Label>Keep or let go</Label>
+            {/*
+                Related ideas. Grouped server-side by shared INFORMATIVE tags - a tag
+                carried by most of the lot is dropped, because "4 other ideas also
+                mention #work" is not a relationship, it is arithmetic. Each line says
+                which tag did the relating, so the grouping can be argued with rather
+                than trusted.
+              */}
+              {related.length > 0 ? (
+                <>
+                  <Label>Related</Label>
+                  {related.map((neighbour: { _id: string; title?: string; via: string }) => (
+                    <Button
+                      key={neighbour._id}
+                      title={`${neighbour.title ?? "An idea"}  ·  #${neighbour.via}`}
+                      onPress={() => router.push(`/idea/${neighbour._id}`)}
+                    />
+                  ))}
+                </>
+              ) : null}
+
+              {/*
+                Timeline. `ideaEvents` had been written by the backend since the very
+                first capture and read by nothing but the web client, so an Android
+                user could change an idea's status and see no evidence it had happened.
+              */}
+              {events.length > 0 ? (
+                <>
+                  <Label>History</Label>
+                  <Note>Newest first.</Note>
+                  {events.map((event: { id: string; kind: string; detail: string | null; createdAt: number }) => (
+                    <Note key={event.id}>
+                      {describeEvent(event.kind, event.detail)} · {relativeDay(event.createdAt)}
+                    </Note>
+                  ))}
+                </>
+              ) : null}
+
+              <Label>Keep or let go</Label>
             <Button
               title={idea.favorite ? "Remove favorite" : "Mark as favorite"}
               disabled={busy}
