@@ -254,18 +254,40 @@ expected string races the websocket, because page chrome paints before data does
 - Any physical device. Android evidence is an emulator, which is no substitute for
   a thumb, a real battery, or OEM background-process behaviour.
 - A production deployment of any kind.
-- Long-lived sessions, offline/reconnect, and concurrent multi-client editing. The
-  `reconcile` aliasing fix is covered by an offline test, not by two clients racing.
+- The in-app offline banner. CDP's offline emulation blocks new requests but leaves
+  an established WebSocket open, so the app has no way to know the network is gone.
+  `verify:concurrency` checks everything around it — no false "disconnected" claim
+  while connected, no "you have no ideas" when a query merely failed, drafts kept
+  while offline, self-recovery — and records the gap rather than asserting
+  something untrue about the method.
 
 **Known and accepted, documented rather than hidden**
-- Account enumeration. Convex Auth v1 rethrows distinguishable errors from a
-  public action; three fixes were built and rejected, all recorded in
-  `src/convex/auth.ts`. Closing it means owning the provider.
-- Sign-in throttling is keyed on the account id, so unknown addresses are not
-  throttled. Also recorded at the setting that configures it.
-- List queries still scan an owner's rows before filtering and capping. Small
-  fixtures prove correctness, not scalability.
+- **Account enumeration — half fixed, and the residual is measured.** Every
+  credential failure through the app's own sign-in path now returns one
+  indistinguishable message. The library's `auth:signIn` remains a public action,
+  though, so calling it directly still answers `InvalidSecret` or
+  `InvalidAccountId`. That was verified against the live deployment rather than
+  inferred; `npm run verify:authproxy` asserts both halves so the residual cannot
+  be quietly forgotten. Closing it means Convex Auth v2 or owning the provider —
+  and owning it is blocked on the library's internal JWT signing, not on password
+  verification, which turned out to be reproducible.
+- **Free text, tag and favourite filters still read the candidate set.** They
+  cannot be indexed, and an exact `total` needs the read. The archive flag, the
+  stage, and the ordering do not: those are index-backed, so opening the lot costs
+  the page rather than the history.
 - Capture drafts in the Swift client are view-memory only.
+- Convex discloses a source location in production error bodies. There is no way
+  to reject an action without throwing one.
+
+**Fixed since this section was last true**
+- Sign-in throttling keyed on the account id, so unknown addresses were unmetered
+  and password spraying across them was free. Now metered on the address the caller
+  chose, which exists whether or not an account does.
+- Long-lived sessions: a stale access token produced a permanently blank app,
+  because the refresh called the Convex client from inside the client's own token
+  fetch. It now goes over plain HTTP.
+- Multi-client editing: an open idea page never saw another client's edits, because
+  the buffers were seeded once and never reconciled.
 
 ## 4. Feature specs
 
