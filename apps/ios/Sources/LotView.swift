@@ -34,7 +34,12 @@ struct LotView: View {
                 HStack {
                     TextField("Capture an idea…", text: $title, axis: .vertical).lineLimit(1...3)
                     Button("Add", systemImage: "plus") {
-                        Task { if await store.mutate("ideas:capture", ["title": title, "source": "typed"]) { title = "" } }
+                        let submitted = title
+                        Task {
+                            if await store.mutate("ideas:capture", ["title": submitted, "source": "typed"]), title == submitted {
+                                title = ""
+                            }
+                        }
                     }.disabled(store.busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }.padding().background(.bar)
             }

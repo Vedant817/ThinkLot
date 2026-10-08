@@ -27,6 +27,8 @@ assert.match(source, /args\.updateValue\(scored \? value : nil, forKey: key\)/);
 assert.match(source, /revisitAt: hasRevisit \? .*rounded\(\) : nil/);
 assert.match(source, /@State private var baseline: Idea/);
 assert.match(source, /if description != \(baseline\.description \?\? ""\)/);
+assert.match(source, /"ideas:capture", \["title": submitted, "source": "typed"\]\), title == submitted/);
+assert.match(source, /"tasks:addTask", \["ideaId": ideaId, "title": submitted\]\), taskTitle == submitted/);
 for (const arg of ['archivedOnly', 'favoriteOnly', 'sortPriority']) {
   assert.match(source, new RegExp(`"${arg}":`));
   assert.match(readFileSync(path.join(root, 'src/convex/ideas.ts'), 'utf8'), new RegExp(`${arg}: v.optional\\(v.boolean\\(\\)\\)`));

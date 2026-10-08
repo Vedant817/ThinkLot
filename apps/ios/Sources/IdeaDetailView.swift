@@ -67,7 +67,12 @@ struct IdeaDetailView: View {
                         }
                         TextField("Next action", text: $taskTitle)
                         Button("Add task") {
-                            Task { if await store.mutate("tasks:addTask", ["ideaId": ideaId, "title": taskTitle]) { taskTitle = "" } }
+                            let submitted = taskTitle
+                            Task {
+                                if await store.mutate("tasks:addTask", ["ideaId": ideaId, "title": submitted]), taskTitle == submitted {
+                                    taskTitle = ""
+                                }
+                            }
                         }.disabled(taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || taskTitle.count > 200)
                     }
                     Section { Button("Delete idea", role: .destructive) { deleting = true } }
