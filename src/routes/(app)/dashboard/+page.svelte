@@ -5,6 +5,7 @@
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import { api } from '../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
+	import { maturityLabel, maturityOf } from '$lib/maturity';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 
 	/**
@@ -193,8 +194,18 @@
 								{displayScore(score)}
 							</span>
 						</div>
-						<div class="mt-1.5 flex items-center gap-2">
+						<div class="mt-1.5 flex flex-wrap items-center gap-2">
 							<StatusPill status={idea.status} />
+							<!--
+								Maturity next to the score, because the dashboard asks "what
+								deserves attention" and these answer different halves of it: the
+				score says which idea is worth most, maturity says how close it is to
+								being actionable. A high score on an undeveloped idea is the
+								one worth noticing.
+							-->
+							<span class="font-mono text-[10px] tracking-wider text-ink-3 uppercase">
+								{maturityLabel(maturityOf(idea).stage)}
+							</span>
 							{#if idea.trigger}
 								<span class="truncate font-mono text-[10px] text-ink-3">
 									{idea.trigger}

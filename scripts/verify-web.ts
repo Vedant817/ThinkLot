@@ -312,6 +312,20 @@ async function main() {
 		check('"who is it for" holds the saved value', has(fields['who is it for'] ?? '', 'field engineers'), `got "${fields['who is it for'] ?? ''}"`);
 		check('"expected outcome" holds the saved value', has(fields['expected outcome'] ?? '', 'no unconfirmed note'), `got "${fields['expected outcome'] ?? ''}"`);
 		check('"source / trigger" holds the saved value', has(fields['source / trigger'] ?? '', 'a postmortem in March'), `got "${fields['source / trigger'] ?? ''}"`);
+
+		/**
+		 * Maturity, which is spec section 8's "idea maturity tracking".
+		 *
+		 * The fixture has all three core questions and a score, and no tasks, so the
+		 * expected stage is "Judged" and the expected next step is the task. Both are
+		 * asserted rather than just "a maturity panel exists" - a panel that renders
+		 * the wrong stage is worse than no panel, because it is believed.
+		 */
+		const detail = await page.text();
+		check('the idea shows its maturity', has(detail, 'Maturity'));
+		check('maturity is judged for a written, scored, taskless idea', has(detail, 'Judged'), detail.slice(0, 300).replace(/\n+/g, ' | '));
+		check('maturity suggests the next step', has(detail, 'Add one task'), detail.slice(0, 300).replace(/\n+/g, ' | '));
+
 		await page.screenshot(`${SHOTS}/idea-detail-fields.png`);
 	}
 

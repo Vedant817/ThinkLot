@@ -1,0 +1,93 @@
+# To-do
+
+Everything not yet done, ordered, with why it is ordered that way. One line of
+status per item and the commit that closed it, so this file is evidence rather than
+a wish list.
+
+**Rule for this file:** an item is only `[x]` when something executes it. Not when
+it typechecks, not when the build passes, not when a test asserts it should work.
+
+Legend: `[x]` done · `[~]` partly done, residual named · `[ ]` not started
+
+---
+
+## 1. Spec gaps (section 2, 3, 5, 6 of THINKLOT-SPEC.md)
+
+Nine claims in the spec were false at some point. All closed.
+
+- [x] "Who is it for" (`audience`) — `6a9d867`, verified on device and in Chrome
+- [x] "Expected outcome" (`outcome`) — `6a9d867`, verified on device and in Chrome
+- [x] "Source / trigger" (`trigger`) — `6a9d867`, verified on device and in Chrome
+- [x] `/dashboard` route, and the landing page's dead link to it — `6a9d867`
+- [x] List view + card/list toggle — `2c385f3`
+- [x] "Deploy" box unticked (never deployed, by decision) — spec corrected
+- [x] Base folders / `src/types/Idea.ts` documented as deviation — spec corrected
+- [x] Archived-as-a-flag and the absent right panel documented as deviations
+- [x] `g then d` for the dashboard, and a check that every destination is reachable — `57be576`
+
+## 2. Accepted risks (were in §3.1 of the spec)
+
+- [x] Sign-in throttling keyed on the account id, so unknown addresses were
+      unmetered and password spraying was free — `660a7fd`, `24` checks
+- [~] Account enumeration — **closed on the app's sign-in path**, measured. The
+      library's `auth:signIn` stays public and still answers `InvalidSecret` /
+      `InvalidAccountId`. `verify:authproxy` asserts both halves so the residual
+      cannot be forgotten. Closing it needs Convex Auth v2 or owning the provider;
+      owning it is blocked on the library's internal JWT signing.
+- [~] List queries scanned every row — **closed where indexable** (`2acced2`).
+      Free text, tags and favourites still read the candidate set, because they
+      cannot be indexed and an exact `total` needs the read.
+- [x] Long-lived sessions: a stale access token produced a permanently blank app
+      because the refresh called the Convex client from inside the client's own
+      token fetch — `54df88f`, verified in Chrome
+- [x] Multi-client editing: an open idea page never saw another client's edits —
+      `54df88f`, two real tabs
+
+## 3. Backlog (spec section 8 — "future differentiators")
+
+Ordered so that everything with **no external dependency ships first**. An item
+that needs an API key, a per-call budget, or a security decision is not blocked
+behind the ones that do not.
+
+- [x] **Idea maturity tracking** — `src/lib/maturity.ts`. Derived, never stored, so
+      it cannot disagree with the fields it came from. Five stages (spark, shaped,
+      judged, actioned, committed) plus the single most useful next step. On the idea
+      detail page and beside the score on the dashboard. Verified by
+      `verify:maturity` and, rendered, by `verify:web`.
+- [ ] **Idea timeline** — the history of an idea: captured, scored, moved, snoozed,
+      checked off. `ideaEvents` already records this and is under-used.
+- [ ] **Idea clustering** — group related ideas by shared tags. Deterministic, no
+      model required.
+- [ ] **Idea roadmap builder** — order ideas into now / next / later from scores and
+      stages.
+- [ ] **Idea export** — export ideas as Markdown. No Notion API key needed for a
+      Markdown export that pastes into Notion; a true API push needs a token.
+- [ ] **Public sharing** — an explicit, revocable, per-idea share link. Needs a
+      decision: read-only public pages leak the account's content, so it must be
+      opt-in per idea and revocable.
+- [ ] **AI idea summarisation** — needs a model provider, a per-call budget, and a
+      decision about sending the user's ideas to a third party.
+- [ ] **AI duplicate detection** — same three blockers as above.
+
+## 4. Verification still owed
+
+- [ ] **iOS journey** — compilation, simulator, device, VoiceOver. Needs a Mac and
+      Apple SDKs. Not possible on this host; it is not "almost done".
+- [ ] **Physical device** — all mobile evidence is an emulator. No real thumb, real
+      battery, or OEM background behaviour.
+- [ ] **Production deployment** — prepared, deliberately not performed. Convex
+      production is billed separately and the call is the owner's.
+- [ ] **In-app offline banner** — CDP's offline emulation blocks new requests but
+      leaves an established WebSocket open, so the app cannot be made to notice.
+      Everything around it is covered; the banner itself is not.
+- [ ] **Load / scale testing** — every fixture in this repo is tiny. Correctness at
+      250 rows is proven; behaviour at 50,000 is not.
+
+## 5. Known debt, deliberately
+
+- [~] `verify-e2e.ps1` and `verify-concurrency.ts` create a throwaway account per
+      run and never clean up. Cheap, but it grows the `users` table.
+- [~] The offline suites duplicate some logic the components also contain, because
+      a `.svelte` file's script cannot be imported. Kept in sync by hand.
+- [ ] No CI. Everything here has been run by hand, by one machine, which is the
+      weakest link in every claim on this page.

@@ -5,6 +5,7 @@
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
+	import { maturityLabel, maturityOf } from '$lib/maturity';
 	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask } from '$lib/types';
 	import { page } from '$app/state';
 
@@ -139,6 +140,23 @@
 
 	const score = $derived(idea ? priorityScore(idea) : null);
 	const band = $derived(scoreBand(score));
+
+	/**
+	 * How developed this idea actually is, and what is missing next.
+	 *
+	 * Derived rather than stored, so it cannot disagree with the fields it was
+	 * computed from, and so both clients get it from the same module. The checklist
+	 * counts come from `tasks`, which this page already subscribes to.
+	 */
+	const maturity = $derived(
+		idea
+			? maturityOf({
+					...idea,
+					totalTasks: tasks.length,
+					doneTasks: tasks.filter((task) => task.completed).length
+				})
+			: null
+	);
 
 	/**
 	 * Declared as objects rather than tuples so the template gets `field` as a
@@ -418,6 +436,46 @@
 						></textarea>
 					</label>
 				</div>
+
+				<!--
+					Maturity: how far this idea has actually been developed, and the single
+					most useful thing to do next.
+
+					Placed directly above the checklist because that is where "an idea I
+					keep" becomes "a thing I do", which is the transition this whole
+					feature exists to measure. It says one thing, not a checklist of
+					grievances - a panel listing everything missing is a to-do list, and
+					this app already has one.
+				-->
+				{#if maturity}
+					<div class="mt-6 rounded-lg border border-rule bg-panel px-3 py-3">
+						<div class="flex flex-wrap items-baseline justify-between gap-2">
+							<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+								Maturity
+							</span>
+							<span class="font-mono text-[11px] text-ink-2">{maturityLabel(maturity.stage)}</span>
+						</div>
+
+						<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-rule">
+							<div
+								class="h-full rounded-full bg-signal/70"
+								style={`width:${maturity.percent}%`}
+								role="progressbar"
+								aria-valuenow={maturity.percent}
+								aria-valuemin="0"
+								aria-valuemax="100"
+								aria-label="How developed this idea is"
+							></div>
+						</div>
+
+						{#if maturity.next}
+							<p class="mt-2.5 text-sm leading-6 text-ink-2">
+								<span class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">Next</span>
+								{maturity.next}
+							</p>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Checklist: the bridge from "an idea I keep" to "a thing I do" -->
 				<TaskChecklist ideaId={idea._id} {tasks} />
