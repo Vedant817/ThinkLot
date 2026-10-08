@@ -70,6 +70,19 @@ export function buildShortcuts(h: ShortcutHandlers): Shortcut[] {
 			run: h.focusCapture
 		},
 		{
+			// First in the registry, matching its place in the navigation.
+			//
+			// This was missing entirely when the dashboard was added, which left it
+			// the one destination in the nav that a keyboard user could not reach -
+			// and it is the page you land on after signing in. Every other item has
+			// had a chord, so the omission is not a defensible gap in coverage.
+			label: 'Go to the dashboard',
+			keys: 'g then d',
+			key: 'd',
+			chord: 'g',
+			run: () => h.go('/dashboard')
+		},
+		{
 			label: 'Go to the lot',
 			keys: 'g then l',
 			key: 'l',

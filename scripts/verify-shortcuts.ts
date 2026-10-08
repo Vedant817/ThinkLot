@@ -33,6 +33,40 @@ const shortcuts = buildShortcuts({
 	escape: () => {}
 });
 
+/**
+ * Every destination the app navigates to, which every one must be reachable from
+ * the keyboard by.
+ *
+ * Spelled out here rather than derived from the route tree, because the point is
+ * to catch a destination that EXISTS but has no shortcut. Reading the nav out of
+ * the source and comparing it to the registry would only work if the test could
+ * import the layout, and the layout needs a browser. This list plus the assertion
+ * below is the cheaper version of the same guarantee.
+ */
+const DESTINATIONS = ['/dashboard', '/ideas', '/board', '/review', '/archive'];
+
+/** Presses every chord and second key, recording where each one navigates to. */
+function destinationsReachable(): Map<string, string[]> {
+	const seen = new Map<string, string[]>();
+	for (const href of DESTINATIONS) seen.set(href, []);
+	for (const shortcut of shortcuts) {
+		let went: string | null = null;
+		const spy = buildShortcuts({
+			focusCapture: () => {},
+			go: (to: string) => {
+				went = to;
+			},
+			toggleHelp: () => {},
+			escape: () => {}
+		});
+		const match = spy.find((s) => s.keys === shortcut.keys);
+		if (!match) continue;
+		match.run?.();
+		if (went !== null) seen.get(went)?.push(shortcut.keys);
+	}
+	return seen;
+}
+
 /** A KeyboardEvent stand-in with the fields `resolve` actually reads. */
 function key(k: string, modifiers: Partial<Record<'metaKey' | 'ctrlKey' | 'altKey', boolean>> = {}) {
 	return {
@@ -55,6 +89,7 @@ check('"g" alone navigates nothing', armed.run, null);
 check('"g" arms the chord', armed.nextChord, 'g');
 
 for (const [second, label] of [
+	['d', 'g then d'],
 	['l', 'g then l'],
 	['b', 'g then b'],
 	['r', 'g then r'],
@@ -63,6 +98,21 @@ for (const [second, label] of [
 	const fired = resolve(shortcuts, key(second), 'g');
 	check(`${label} fires`, fired.run?.keys, label);
 	check(`${label} disarms`, fired.nextChord, null);
+}
+
+console.log('\n== every navigation destination is reachable by keyboard ==');
+/**
+ * The dashboard arrived without a chord and nothing noticed, because the suite
+ * asserted four chords that already existed and passed. This walks the registry
+ * and records where each shortcut actually navigates, so a destination added
+ * without a shortcut fails here instead of shipping.
+ */
+{
+	const reachable = destinationsReachable();
+	for (const href of DESTINATIONS) {
+		const keys = reachable.get(href) ?? [];
+		check(`${href} is reachable by keyboard`, keys.length > 0, true);
+	}
 }
 
 console.log('\n== a wrong second key is not a shortcut ==');

@@ -166,16 +166,31 @@ was never built.
 | Week 8 "Deploy" | never deployed, by deliberate decision |
 | Week 1 base folders + `src/types/Idea.ts` | `/stores` empty, `/types` absent, type lives in `src/lib/types.ts` |
 
+Chasing section 6 turned up two more problems that were never spec *claims* at all,
+which is the more interesting kind:
+
+- **A filtered lot was silently thrown away by the app's own back link.** All list
+  state was component-local, so opening an idea and coming back discarded the
+  search, the tag filters, the sort and the view. A refresh did the same, and no
+  filtered view could be shared. The review queue's reason filter and the archive's
+  search had the same defect independently.
+- **The dashboard shipped without a keyboard shortcut**, making it the one
+  destination in the nav a keyboard user could not reach — and the page you land on
+  after signing in. The shortcut suite passed throughout, because it only asserted
+  the four chords that already existed. It now asserts that every destination is
+  reachable, derived from the registry rather than from a hand-written list.
+
 Everything else in this document was checked and **is** genuinely implemented:
 the six statuses (a superset of the four specified), search, the board with
-drag-and-drop, the scoring formula, the three review rules with
+drag-and-drop, the scoring formula with 0–10 sliders, the three review rules with
 snooze/archive/promote, checklists with a progress indicator, auth and sync,
-36 keyboard shortcuts and dark mode.
+43 keyboard shortcuts and dark mode.
 
 The generalisable lesson, recorded here rather than left implicit: **week-level
 checkboxes are not evidence.** The per-item acceptance criteria in 5.1 are closer
 to evidence, and they were unchecked for most of the project only because nobody
-had verified them either.
+had verified them either. And a test that asserts only what already exists will
+happily confirm a new feature is unusable by everyone it was not written for.
 
 ### Verified by execution
 
@@ -304,7 +319,39 @@ completed
 > The **Dashboard did not exist** for most of the project, despite being listed
 > above as the first navigation item — and the landing page already linked to it
 > as "Login to dashboard", so that link was a live 404. It is built now, and signing
-> in lands on it.
+> in lands on it. It arrived without a keyboard shortcut while every other nav item
+> had one, which `verify:shortcuts` now prevents by asserting that each destination
+> is reachable.
+
+### Two deliberate deviations from the layout above
+
+**No right-hand details panel.** The sidebar and the main panel exist; the idea
+detail page is a separate route instead of a third column beside the list. This is
+the right call on a phone, where three columns have nowhere to go, and this app
+ships a React Native client as a first-class target rather than an afterthought.
+
+It is not free, though. The property a master-detail layout gives you is that you
+never lose the list you were looking at — and the route-based version was losing
+it. "← Back to the lot" was a plain `/ideas` link, so opening an idea and coming
+back silently discarded the search, the tag filters, the sort and the view. A
+refresh did the same, and no filtered view could be shared or bookmarked.
+
+Fixed by moving all list state into the query string, shared by the lot, the review
+queue and the archive (`src/lib/filters.svelte.ts`). Idea links carry the filters
+and the detail page reuses its own query string for the back link. So the guarantee
+the panel would have provided is provided by the URL instead.
+
+**`Archived` is a flag, not the seventh lifecycle stage.** Section 0's lifecycle
+reads `Inbox → Parked → Reviewing → Ready → Building → Done → Archived`, which
+puts Archived in sequence with the six statuses. It is implemented as an orthogonal
+boolean instead, so an idea can be archived from any stage and restored to the stage
+it came from — the board shows six columns, and archiving does not overwrite where
+an idea was. The previous stage is captured on archive and restored with it, which
+is verified in `verify:e2e`.
+
+Treating Archived as a stage would mean archiving a "ready" idea lost that fact,
+and the board would gain a column of things the user has chosen to stop looking
+at.
 
 ## 7. Folder structure
 
@@ -331,6 +378,29 @@ src
 ├ types
 │  └ Idea.ts
 ```
+
+> **What actually exists, and why the difference is mostly deliberate.**
+>
+> - `lib/scoring.ts` — as specified.
+> - `lib/filters.ts` — exists as **`lib/filters.svelte.ts`**, because it uses runes
+>   and those only compile in a `.svelte.ts` module. It is real shared behaviour
+>   used by three routes (URL-backed list filters), not an empty placeholder.
+> - `lib/storage.ts` — **does not exist.** The three things stored in the browser
+>   are auth tokens, the theme, and the capture draft, each used exactly once and
+>   unrelated to the others. A module wrapping three unrelated single call sites
+>   would exist to match this diagram rather than to remove a duplication, and the
+>   duplication it would prevent has not happened.
+> - `types/Idea.ts` — does not exist; the type is `lib/types.ts`, beside the scoring
+>   and status constants it shares a module with.
+> - `stores/ideas.store.ts` — **not built, deliberately.** Convex owns the state; a
+>   second client-side store would duplicate it and immediately drift.
+> - `components/IdeaCard`, `IdeaForm`, `KanbanBoard` — not components under those
+>   names. The card and board render inline in their routes and `components/` holds
+>   `CaptureBar`, `TaskChecklist`, `AuthForm`, `StatusPill`, `ShortcutHelp` and
+>   `QueryError`. These names are a sketch of responsibilities, not a file manifest.
+>
+> Recorded item by item because "the folder structure roughly matches" is the kind of
+> claim that is true enough to pass review and false enough to waste an afternoon.
 
 ## 8. Backlog (future differentiators)
 
