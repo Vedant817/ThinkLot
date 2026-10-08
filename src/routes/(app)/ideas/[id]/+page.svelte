@@ -30,7 +30,15 @@
 	 * Not `$state`, for the same reason as the list page: an effect that disposes
 	 * and recreates a handle it also tracks re-schedules itself until it dies.
 	 */
-	let handle = $state<QueryHandle<{ idea: Idea; tasks: IdeaTask[]; events: TimelineEvent[] }> | null>(null);
+	/** A neighbour from the server-side clustering, already summarised. */
+	type RelatedIdea = Idea & { via: string };
+
+	let handle = $state<QueryHandle<{
+		idea: Idea;
+		tasks: IdeaTask[];
+		events: TimelineEvent[];
+		related: RelatedIdea[];
+	}> | null>(null);
 
 	// The idea itself is always derived straight from the subscription, so a
 	// realtime edit from another device shows up here immediately.
@@ -51,7 +59,12 @@
 
 	$effect(() => {
 		const id = data.id;
-		const next = watchQuery<{ idea: Idea; tasks: IdeaTask[]; events: TimelineEvent[] }>(convex.client!, api.ideas.get, {
+		const next = watchQuery<{
+		idea: Idea;
+		tasks: IdeaTask[];
+		events: TimelineEvent[];
+		related: RelatedIdea[];
+	}>(convex.client!, api.ideas.get, {
 			ideaId: id
 		});
 		// WRITE ONLY - see the note in (app)/ideas/+page.svelte about the
@@ -150,6 +163,8 @@
 	 * computed from, and so both clients get it from the same module. The checklist
 	 * counts come from `tasks`, which this page already subscribes to.
 	 */
+	const related = $derived(handle?.current?.related ?? []);
+
 	const maturity = $derived(
 		idea
 			? maturityOf({
@@ -509,6 +524,35 @@
 								</li>
 							{/each}
 						</ol>
+					</div>
+				{/if}
+
+				<!--
+					Related ideas - spec section 8's "idea clustering".
+
+					Computed server-side, because deciding whether a shared tag is
+					informative needs the whole lot and shipping the lot to every detail
+					page for a five-row panel would be a bad trade. Each line says which tag
+					did the relating, so the grouping can be argued with.
+				-->
+				{#if related.length > 0}
+					<div class="mt-6">
+						<h3 class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Related
+						</h3>
+						<ul class="mt-2 space-y-1">
+							{#each related as neighbour (neighbour._id)}
+								<li class="flex items-baseline gap-2 text-sm">
+									<a
+										href={`/ideas/${neighbour._id}`}
+										class="min-w-0 flex-1 truncate text-ink-2 underline-offset-4 hover:text-ink hover:underline"
+									>
+										{neighbour.title}
+									</a>
+									<span class="shrink-0 font-mono text-[11px] text-ink-3">#{neighbour.via}</span>
+								</li>
+							{/each}
+						</ul>
 					</div>
 				{/if}
 

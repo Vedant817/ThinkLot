@@ -2,6 +2,7 @@ import { getAuthUserId } from '@convex-dev/auth/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { v } from 'convex/values';
+import { relatedIdeas } from '../lib/clustering';
 import {
 	normaliseBody,
 	normaliseScore,
@@ -359,9 +360,39 @@ export const get = query({
 				createdAt: event.createdAt
 			}));
 
-		return { idea, tasks: tasks.sort((a, b) => a.position - b.position), events };
+		/**
+		 * Related ideas, computed here rather than in the browser.
+		 *
+		 * The clustering needs the whole lot to judge whether a shared tag is
+		 * informative or just common, so it cannot be derived from what one detail
+		 * page happens to hold. Doing it server-side keeps the response at five rows
+		 * instead of shipping the entire lot to every detail page for a panel most
+		 * people scroll past.
+		 */
+		const siblingRows = await ctx.db
+			.query('ideas')
+			.withIndex('by_user_archived', (q) => q.eq('userId', idea.userId).eq('archived', false))
+			.take(RELATED_SCAN_LIMIT);
+
+		const neighbours = relatedIdeas(idea, siblingRows, RELATED_LIMIT).map(({ idea: other, via }) => ({
+			...toSummary(other),
+			via
+		}));
+
+		return {
+			idea,
+			tasks: tasks.sort((a, b) => a.position - b.position),
+			events,
+			related: neighbours
+		};
 	}
 });
+
+/** How many active ideas the related-ideas computation looks at. */
+const RELATED_SCAN_LIMIT = 250;
+
+/** How many neighbours one idea shows. Five is a panel, not a search result. */
+const RELATED_LIMIT = 5;
 
 /**
  * How much history one idea's timeline shows.

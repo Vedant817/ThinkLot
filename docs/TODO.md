@@ -60,8 +60,11 @@ behind the ones that do not.
       from `ideas:get` so it costs no second subscription, capped at 50, newest
       first, with wording shared in `src/lib/timeline.ts`. Also added the one
       milestone nothing recorded: becoming judged.
-- [ ] **Idea clustering** — group related ideas by shared tags. Deterministic, no
-      model required.
+- [x] **Idea clustering** — `src/lib/clustering.ts`, computed server-side so the
+      detail page gets five rows instead of the whole lot. A tag only forms a
+      cluster if it is INFORMATIVE: shared by a minority. `#work` on 80% of a lot is
+      the rule, not a signal, and the naive "shares any tag" version chains an entire
+      backlog into one useless cluster.
 - [ ] **Idea roadmap builder** — order ideas into now / next / later from scores and
       stages.
 - [ ] **Idea export** — export ideas as Markdown. No Notion API key needed for a

@@ -487,6 +487,47 @@ Check "clearing a score is recorded" (@($tlCleared | ForEach-Object { $_.kind })
 $tlOther = Call 'ideas:get' (@{ ideaId=$tlId.value } | ConvertTo-Json -Compress) $tokenB 'query'
 Check "another user gets nothing for someone else's idea" ($null -eq $tlOther.value) "status=$($tlOther.status) value=$($tlOther.value | ConvertTo-Json -Compress)"
 
+Write-Host "`n== 11j. Clustering (spec section 8) ==" -ForegroundColor Cyan
+# A tag everybody carries must not become one giant cluster; a rare tag must bind.
+#
+# This uses its OWN account on purpose. Whether a tag counts as informative depends
+# on its share of the WHOLE lot, so a fixture that reuses the main QA account gets a
+# different answer every time earlier sections create another idea - the first
+# version of this check failed for exactly that reason, on an account that had
+# quietly grown to fifteen ideas.
+$clEmail = "qa-cluster-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$clToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$clEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+# Exactly six ideas: two on a rare tag, three more on the common one, one untagged.
+# cap = max(2, ceil(6 * 0.4)) = 3, so `rarethread` (2) binds and `common` (5) does not.
+$clA = Call 'ideas:capture' (@{ title='cluster alpha' } | ConvertTo-Json -Compress) $clToken 'mutation'
+$clB = Call 'ideas:capture' (@{ title='cluster beta' } | ConvertTo-Json -Compress) $clToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$clA.value; tags=@('rarethread','common') } | ConvertTo-Json -Compress) $clToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$clB.value; tags=@('rarethread','common') } | ConvertTo-Json -Compress) $clToken 'mutation'
+foreach ($n in 1..3) {
+  $extra = Call 'ideas:capture' (@{ title="common only $n" } | ConvertTo-Json -Compress) $clToken 'mutation'
+  $null = Call 'ideas:update' (@{ ideaId=$extra.value; tags=@('common') } | ConvertTo-Json -Compress) $clToken 'mutation'
+}
+$null = Call 'ideas:capture' (@{ title='untagged loner' } | ConvertTo-Json -Compress) $clToken 'mutation'
+
+$clGet = (Call 'ideas:get' (@{ ideaId=$clA.value } | ConvertTo-Json -Compress) $clToken).value
+$via = @($clGet.related | ForEach-Object { $_.via })
+Check "a rare tag relates two ideas" ($via -contains 'rarethread') "via=$($via -join ',')"
+Check "a common tag relates nothing" (-not ($via -contains 'common')) "via=$($via -join ',')"
+Check "the neighbour names the idea it is" (@($clGet.related | Where-Object { $_._id -eq $clB.value }).Count -eq 1) "titles=$((@($clGet.related) | ForEach-Object { $_.title }) -join ',')"
+Check "an idea is never related to itself" (@($clGet.related | Where-Object { $_._id -eq $clA.value }).Count -eq 0)
+
+# The untagged idea has no neighbours at all, which is a real answer rather than a
+# blank panel pretending there is nothing there.
+$clLoner = Call 'ideas:list' (@{ search='untagged loner' } | ConvertTo-Json -Compress) $clToken 'query'
+$clLonerId = $clLoner.value.ideas[0]._id
+$clLonerGet = (Call 'ideas:get' (@{ ideaId=$clLonerId } | ConvertTo-Json -Compress) $clToken).value
+Check "an untagged idea has no neighbours" (@($clLonerGet.related).Count -eq 0) "got $(@($clLonerGet.related).Count)"
+
+# And it must not leak across accounts.
+$clOther = Call 'ideas:get' (@{ ideaId=$clA.value } | ConvertTo-Json -Compress) $tokenB 'query'
+Check "another user gets no related ideas" ($null -eq $clOther.value) "status=$($clOther.status)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #
