@@ -310,27 +310,26 @@ class ConvexContext {
 	async signIn(email: string, password: string) {
 		this.ensure();
 		try {
-			// This calls the library's `auth:signIn` DIRECTLY, and that is deliberate.
+			// Through `signInProxy`, not the library action directly.
 			//
-			// It used to route through an `authActions.signInAttempt` wrapper whose
-			// whole purpose was to collapse "InvalidAccountId" and "InvalidSecret"
-			// into one message. That bought nothing: the library action stayed
-			// publicly callable and perfectly distinguishable, so sanitising one of
-			// two entry points only created the impression the hole was closed. The
-			// wrapper was removed rather than kept as security theatre.
+			// This route used to call `auth:signIn` itself, and a previous version
+			// used to call a wrapper that only sanitised the error message - which was
+			// correctly removed as security theatre, because the library action stayed
+			// publicly callable either way.
 			//
-			// See the file header in src/convex/auth.ts for the three fixes that were
-			// built and rejected, and why closing it properly means owning the
-			// provider via ConvexCredentials rather than wrapping the action.
+			// `signInProxy` is not that. It also meters attempts against an address
+			// that has no account, which the library's own limiter cannot do because it
+			// keys on the account id. So this is a real improvement in two directions,
+			// not a cosmetic one.
+			//
+			// `flow` is REQUIRED by the library. Without it Convex Auth rejects the
+			// call with "Missing `flow` param" and *no user can sign in at all* - the
+			// original omission shipped a completely broken login path, and the e2e
+			// suite missed it because it only ever exercised a wrong password.
 			const result = await this.action<{ tokens?: Tokens | null }>(
-				api.auth.signIn,
+				api.signInProxy.signInProxy,
 				{
 					provider: 'password',
-					// `flow` is REQUIRED. Without it Convex Auth rejects the call with
-					// "Missing `flow` param" and *no user can sign in at all*. The
-					// original omission here shipped a completely broken login path, and
-					// the e2e suite missed it because it only ever exercised a wrong
-					// password, never a successful one.
 					params: { email: email.trim(), password, flow: 'signIn' }
 				}
 			);
@@ -344,7 +343,7 @@ class ConvexContext {
 		this.ensure();
 		try {
 			const result = await this.action<{ tokens?: Tokens | null }>(
-				api.auth.signIn,
+				api.signInProxy.signInProxy,
 				{
 					provider: 'password',
 					params: { email: email.trim(), password, flow: 'signUp' }

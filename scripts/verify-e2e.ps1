@@ -41,14 +41,14 @@ Check "ideas:remove without a token is refused"  (Refused (Call 'ideas:remove' '
 
 Write-Host "`n== 2. Sign up ==" -ForegroundColor Cyan
 $emailA = "qa-a-$stamp@example.com"
-$signUpA = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailA; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$signUpA = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailA; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 $tokenA = $signUpA.value.tokens.token
 Check "signup returns an access token" (-not [string]::IsNullOrEmpty($tokenA)) "status=$($signUpA.status) $($signUpA.errorMessage)"
 
 $meA = Call 'users:current' '{}' $tokenA
 Check "users:current resolves the signed-in email" ($meA.value.email -eq $emailA) "-> $($meA.value.email)"
 
-$badPass = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailA; password='wrong-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$badPass = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailA; password='wrong-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 Check "wrong password is rejected" (Refused $badPass) "-> status=$($badPass.status)"
 
 Write-Host "`n== 2b. Sign IN with an existing account ==" -ForegroundColor Cyan
@@ -56,14 +56,14 @@ Write-Host "`n== 2b. Sign IN with an existing account ==" -ForegroundColor Cyan
 # shipped: the client omitted `flow`, so Convex Auth rejected every sign-in with
 # "Missing `flow` param" and nobody could get in. The suite only ever exercised a
 # WRONG password, which failed for the right reason and hid the bug.
-$login = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailA; password=$pass; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$login = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailA; password=$pass; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 $loginToken = $login.value.tokens.token
 Check "signing in with an existing account succeeds" (-not [string]::IsNullOrEmpty($loginToken)) "status=$($login.status) $($login.errorMessage)"
 
 $asLoggedIn = Call 'users:current' '{}' $loginToken
 Check "the signed-in token resolves to the same user" ($asLoggedIn.value.email -eq $emailA) "-> $($asLoggedIn.value.email)"
 
-$noFlow = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailA; password=$pass } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$noFlow = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailA; password=$pass } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 Check "signIn without `flow` is refused (documents the footgun)" (Refused $noFlow)
 
 Write-Host "`n== 3. Capture an idea ==" -ForegroundColor Cyan
@@ -96,17 +96,17 @@ function JwtSubject($token) {
     return ($json.sub -split '\|')[0]
 }
 
-$upper = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailA.ToUpper(); password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$upper = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailA.ToUpper(); password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 Check "uppercase variant of the same email resolves to the SAME user" ((JwtSubject $upper.value.tokens.token) -eq (JwtSubject $tokenA)) "-> uppercase sub vs original sub"
 
-$padded = Call 'auth:signIn' (@{ provider='password'; params=@{ email="  $emailA "; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$padded = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email="  $emailA "; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 Check "padded variant of the same email resolves to the SAME user" ((JwtSubject $padded.value.tokens.token) -eq (JwtSubject $tokenA))
 
-Check "a malformed email is refused" (Refused (Call 'auth:signIn' (@{ provider='password'; params=@{ email='not-an-email'; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'))
+Check "a malformed email is refused" (Refused (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email='not-an-email'; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'))
 
 Write-Host "`n== 4. A second user must see nothing of user A ==" -ForegroundColor Cyan
 $emailB = "qa-b-$stamp@example.com"
-$signUpB = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$emailB; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+$signUpB = Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$emailB; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
 $tokenB = $signUpB.value.tokens.token
 Check "second signup succeeds" (-not [string]::IsNullOrEmpty($tokenB))
 

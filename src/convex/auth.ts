@@ -8,7 +8,7 @@ import { convexAuth } from '@convex-dev/auth/server';
  * ever reachable from inside a Convex mutation, so unlike the original
  * hand-rolled implementation there is no public surface that can leak a hash.
  *
- * ## Known, accepted residual risk: account enumeration
+ * ## Account enumeration: half fixed, and the half that remains is measured
  *
  * Convex Auth v1's credential provider rethrows two distinguishable sentinels
  * verbatim from its `auth:signIn` action:
@@ -16,35 +16,61 @@ import { convexAuth } from '@convex-dev/auth/server';
  *   "InvalidAccountId" - the address is not registered
  *   "InvalidSecret"    - it is registered, the password is wrong
  *
- * Both are reachable from the public Convex HTTP API with no rate limit, and
- * there is no timing channel to blunt them (measured 422ms vs 428ms, inside
- * noise), so the error message is the whole oracle.
+ * Both are reachable from the public Convex HTTP API, and there is no timing
+ * channel to blunt them (measured 422ms vs 428ms, inside noise), so the error
+ * message is the whole oracle.
  *
- * ### Why it is not fixed here
+ * ### What an earlier version of this file concluded, and why it was half wrong
  *
- * Three approaches were built and rejected:
+ * It listed three dead ends:
  *
- * 1. A wrapper action delegating to the library's action. Impossible - Convex
- *    forbids one function calling another, so `ctx.runAction(signIn, ...)`
- *    throws "is not a functionReference". (This was shipped by mistake once and
- *    it broke sign-up entirely.)
- * 2. Pre-checking inside the `profile` hook, which is the only place the library
- *    exposes a database handle. Impossible - `profile` must return the profile
- *    synchronously, so no query can be awaited before the library performs its
- *    own distinguishing lookup.
- * 3. Taking over `crypto` with Web Crypto PBKDF2 so the password could be
- *    verified in the hook. This builds and deploys, but verification is still
- *    `await`ed inside an async hook that the type forbids, so it cannot close
- *    the oracle either - and it would invalidate every existing scrypt hash.
+ * 1. A wrapper action delegating to the library's action. Claimed impossible
+ *    because "Convex forbids one function calling another". **That is wrong.**
+ *    `ActionCtx` does have `runAction`, and `api.auth.signIn` is a valid public
+ *    action reference. The original attempt passed the value returned by
+ *    `convexAuth()` rather than the generated reference, which is why it threw
+ *    `is not a functionReference` and broke sign-up once.
+ * 2. Pre-checking inside the `profile` hook. Correct - the library calls it
+ *    without awaiting, so it must return synchronously and cannot query first.
+ * 3. Taking over `crypto` with Web Crypto PBKDF2. Correct that it cannot close
+ *    the oracle from inside the hook, and it would invalidate every existing
+ *    scrypt hash.
  *
- * Closing it properly means owning the provider via `ConvexCredentials` and
- * writing our own sign-in action, or moving to Convex Auth v2. Both are larger
- * than the exposure warrants for a single-user idea app, and reimplementing auth
- * internals to shave off an error message is a bad trade. Tracked rather than
- * papered over.
+ * So `signInProxy.ts` now does what approach 1 was reaching for, and the app's
+ * own sign-in path - web, mobile and every test - is metered and uniform.
  *
- * Email normalisation below IS fixed, because it is the half of this that also
- * splits accounts and enables squatting.
+ * ### The residual, stated precisely
+ *
+ * `convexAuth` registers `auth:signIn` as a **public** action and offers no
+ * internal-only mode (checked against the installed package). So the raw action
+ * stays directly callable, and stays distinguishable:
+ *
+ *   POST /api/action { "path": "auth:signIn", ... }
+ *     known address, wrong password -> "InvalidSecret"
+ *     unknown address, wrong password -> "InvalidAccountId"
+ *
+ * Verified against the live deployment rather than inferred, because "we could
+ * not fix it" and "we fixed it" are both easy to assert and hard to believe.
+ * `npm run verify:authproxy` asserts both halves: the proxy path is uniform, and
+ * the raw path is not.
+ *
+ * Closing the raw path means Convex Auth v2, or owning the provider. Owning it
+ * looks closer than it did - `lucia`'s `Scrypt` is in `node_modules`, so password
+ * verification could be reproduced faithfully. What blocks it is the other half:
+ * minting a session token needs the library's *internal* JWT signing, which is
+ * not importable. Reimplementing that to hide an error string is a bad trade for
+ * a personal idea app, so it is recorded rather than attempted.
+ *
+ * ### The second risk, now closed
+ *
+ * The limiter below keys on the ACCOUNT ID, and an address that was never
+ * registered has no account row and therefore no limit - so guesses against
+ * unknown addresses were completely unmetered, and password spraying across them
+ * was free. `signInProxy` meters on the address the caller chose, which exists
+ * whether or not an account does.
+ *
+ * Email normalisation below IS fixed, because it is the half of enumeration that
+ * also splits accounts and enables squatting.
  */
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({

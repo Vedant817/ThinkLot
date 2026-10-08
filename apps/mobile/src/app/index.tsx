@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useAction } from "convex/react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   Button,
@@ -12,9 +11,26 @@ import {
   Page,
 } from "../components/ui";
 import { errorMessage } from "../lib/auth";
+import { api } from "../lib/api";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+type Tokens = { token: string; refreshToken: string };
 
 export default function SignIn() {
-  const { signIn } = useAuthActions();
+  /**
+   * Signs in through `signInProxy`, not `useAuthActions().signIn`.
+   *
+   * The library's own helper calls `auth:signIn` directly, which is the endpoint
+   * that still answers "InvalidSecret" or "InvalidAccountId" and so still leaks
+   * whether an address has an account, and which is not metered for addresses that
+   * have none. Routing this client through the proxy means a phone gets the same
+   * uniform message and the same attempt budget as the web app.
+   *
+   * `useAuthActions` also stores the tokens itself; calling the proxy means this
+   * screen has to do that part itself, which is why `signInProxy` returns the same
+   * `{ tokens: { token, refreshToken } }` shape the library returns.
+   */
+  const signInProxy = useAction(api.signInProxy.signInProxy);
   const { isLoading } = useConvexAuth();
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
@@ -26,11 +42,15 @@ export default function SignIn() {
     setBusy(true);
     setError(undefined);
     try {
-      await signIn("password", {
-        email: email.trim().toLowerCase(),
-        password,
-        flow,
+      const result = await signInProxy({
+        provider: "password",
+        params: { email: email.trim().toLowerCase(), password, flow },
       });
+      // Same keys the library persists, so `useAuthToken` picks it up unchanged.
+      const tokens = (result as { tokens?: Tokens | null }).tokens;
+      if (!tokens) throw new Error("Sign-in did not return a session.");
+      await AsyncStorage.setItem("__convexAuthJWT", tokens.token);
+      await AsyncStorage.setItem("__convexAuthRefreshToken", tokens.refreshToken);
       setPassword("");
     } catch (e) {
       setError(errorMessage(e));

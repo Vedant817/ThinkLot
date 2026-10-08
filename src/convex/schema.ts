@@ -63,6 +63,34 @@ const schema = defineSchema({
 		// One counter row per (user, key); the uniqueness that matters.
 		.index('by_user_key', ['userId', 'key']),
 
+	/**
+	 * Failed-attempt budget for the sign-in proxy, keyed on a hash of the address.
+	 *
+	 * This exists because `@convex-dev/auth`'s own limiter keys on the ACCOUNT ID,
+	 * and there is no account row for an address that was never registered - so
+	 * guesses against unknown addresses were completely unthrottled. That is what
+	 * made bulk enumeration cheap, and no configuration of the library can change
+	 * it.
+	 *
+	 * Keyed on a SHA-256 of the normalised address rather than the address itself:
+	 * this table is about "how many guesses against this mailbox", and storing the
+	 * plaintext would duplicate every account address into a table that outlives
+	 * account deletion.
+	 *
+	 * `windowStart` is a timestamp, not a counter, so the window cannot drift and a
+	 * record always expires on its own.
+	 */
+	authAttempts: defineTable({
+		/** `sha256(normalised email) + ':' + flow`. Never the address itself. */
+		key: v.string(),
+		flow: v.string(),
+		/** Attempts inside the current window. Reset when the window rolls over. */
+		count: v.number(),
+		windowStart: v.number()
+	})
+		// The proxy looks a budget up by key alone, always.
+		.index('by_key', ['key']),
+
 	ideas: defineTable({
 		userId: v.id('users'),
 
