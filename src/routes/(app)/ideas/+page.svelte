@@ -394,10 +394,20 @@
 						<div class="mt-2 flex flex-wrap items-center gap-2">
 							<StatusPill status={idea.status} />
 							{#each idea.tags as tag (tag)}
+								<!--
+									24px minimum in both axes (WCAG 2.2 SC 2.5.8). This was a bare
+									`<button>` with no padding classes, so its hit area was about
+									13px tall - comfortably smaller than a fingertip, and these are
+									tappable on the phone this app is meant for.
+
+									`aria-pressed` is also added: the row-level filter chips carry it,
+									and this is the same action, so it should announce identically.
+								-->
 								<button
 									type="button"
 									onclick={() => toggleTag(tag)}
-									class="font-mono text-[11px] text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+									aria-pressed={tagFilter.includes(tag)}
+									class="-my-1 -ml-1 inline-flex min-h-6 min-w-6 items-center rounded px-1 font-mono text-[11px] text-ink-3 underline-offset-2 hover:text-ink hover:underline"
 								>
 									#{tag}
 								</button>

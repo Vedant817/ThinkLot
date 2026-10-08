@@ -37,7 +37,18 @@
 
 	--ink: #141418;
 	--ink-2: #55554f;
-	--ink-3: #6f6f68;
+	/*
+		Measured, not assumed. This comment used to assert that --ink-3 clears
+		4.5:1 on paper, panel AND sunk, and it did not: #6f6f68 on --sunk (#eeeeeb)
+		is 4.353:1, which fails WCAG 1.4.3 for normal text. The audit was right and
+		the comment was wrong, which is the worst combination - a token that fails
+		guarded by a comment asserting it passes.
+
+		#6b6b64 measures 4.618 on sunk, 4.961 on panel, 5.368 on paper, so the
+		claim below is now true on all three. Verified by computing the WCAG
+		relative-luminance ratio, not by eyeballing the swatch.
+	*/
+	--ink-3: #6b6b64;
 
 	--signal: #5b4bdb;
 	--signal-ink: #ffffff;

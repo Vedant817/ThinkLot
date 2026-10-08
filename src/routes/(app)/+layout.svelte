@@ -270,7 +270,24 @@
 				</div>
 			</nav>
 
-			<main class="min-w-0 flex-1 pb-20 md:pb-0">
+			<!--
+				Skip link (WCAG 2.4.1). Off-screen until focused, then pinned to the
+				top-left. The sidebar plus the bottom nav means a keyboard user
+				otherwise tabs through every destination on every single screen
+				before reaching the content they came for.
+
+				`-translate-y-full focus:translate-y-0` rather than `hidden`: a
+				display:none element is not focusable, so the link could never be
+				reached in the first place.
+			-->
+			<a
+				href="#main"
+				class="fixed top-2 left-2 z-[60] -translate-y-full rounded-md border border-signal bg-paper px-3 py-2 font-mono text-[11px] tracking-wider text-signal uppercase focus:translate-y-0"
+			>
+				Skip to content
+			</a>
+
+			<main id="main" tabindex="-1" class="min-w-0 flex-1 pb-20 outline-none md:pb-0">
 				{@render children()}
 			</main>
 		</div>
