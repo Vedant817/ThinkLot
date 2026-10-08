@@ -68,18 +68,73 @@
 	// the buffers - and the first blur then writes them onto the new idea. One
 	// "related ideas" link away from silently overwriting somebody's work.
 	let seededId: string | null = null;
+
+	/**
+	 * The last server values the text buffers were reconciled against.
+	 *
+	 * A copy rather than a reference to the same object the buffers hold, for the
+	 * same reason the mobile `edit-buffer` copies: if these were one object, writing
+	 * to a buffer would also move the snapshot, the "is this field being edited?"
+	 * comparison would answer "yes, it matches", and the next realtime update would
+	 * overwrite whatever was being typed.
+	 */
+	let snapshot = {
+		title: '',
+		description: '',
+		problem: '',
+		audience: '',
+		outcome: '',
+		trigger: ''
+	};
 	$effect(() => {
 		const id = data.id;
 		const incoming = handle?.current?.idea;
-		if (!incoming || incoming._id !== id || seededId === id) return;
-		seededId = id;
-		title = incoming.title;
-		description = incoming.description ?? '';
-		problemText = incoming.problem ?? '';
-		audienceText = incoming.audience ?? '';
-		outcomeText = incoming.outcome ?? '';
-		triggerText = incoming.trigger ?? '';
-		tagDraft = '';
+		if (!incoming || incoming._id !== id) return;
+
+		/**
+		 * The server's values as of the last time this page looked.
+		 *
+		 * Without it, this effect seeded the buffers once and then returned forever:
+		 * `seededId === id` short-circuited every later update, so an open detail page
+		 * never saw another client's edits. Score and status appeared to keep working
+		 * because they are `$derived` off `idea`; the text fields did not, which is why
+		 * this looked fine from the outside and only appeared with two tabs open.
+		 *
+		 * The rule matches the mobile editor's: take the server's value for a field
+		 * nobody is editing, and never take it over one being typed into. Losing an
+		 * in-progress sentence to somebody else's save is the worse of the two
+		 * failures, because it is the unrecoverable one.
+		 */
+		const serverText = {
+			title: incoming.title,
+			description: incoming.description ?? '',
+			problem: incoming.problem ?? '',
+			audience: incoming.audience ?? '',
+			outcome: incoming.outcome ?? '',
+			trigger: incoming.trigger ?? ''
+		};
+
+		if (seededId !== id) {
+			seededId = id;
+			title = serverText.title;
+			description = serverText.description;
+			problemText = serverText.problem;
+			audienceText = serverText.audience;
+			outcomeText = serverText.outcome;
+			triggerText = serverText.trigger;
+			tagDraft = '';
+			snapshot = serverText;
+			return;
+		}
+
+		// Field by field, so one being typed into is untouched while the rest follow.
+		if (title === snapshot.title) title = serverText.title;
+		if (description === snapshot.description) description = serverText.description;
+		if (problemText === snapshot.problem) problemText = serverText.problem;
+		if (audienceText === snapshot.audience) audienceText = serverText.audience;
+		if (outcomeText === snapshot.outcome) outcomeText = serverText.outcome;
+		if (triggerText === snapshot.trigger) triggerText = serverText.trigger;
+		snapshot = serverText;
 	});
 
 	const score = $derived(idea ? priorityScore(idea) : null);

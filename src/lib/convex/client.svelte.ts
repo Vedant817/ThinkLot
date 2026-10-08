@@ -244,12 +244,44 @@ class ConvexContext {
 		if (!refreshToken) return null;
 
 		try {
-			const result = await this.action<{ tokens?: Tokens | null }>(api.auth.signIn, {
-				refreshToken
+			/**
+			 * Over plain HTTP, deliberately NOT through `this.action`.
+			 *
+			 * This is the fix for the app hanging on a blank shell for anyone whose
+			 * access token has expired or been discarded - which is every returning
+			 * user at some point, and which this project had listed as "long-lived
+			 * sessions: unverified" for its whole life.
+			 *
+			 * Using the Convex client here is circular. `getToken` is called BY the
+			 * client, during the authentication handshake, before the socket is
+			 * usable; the client's own call then waits on a connection that is waiting
+			 * on this function. The result is that `getToken` never resolves, the
+			 * auth status stays `loading`, and the layout's readiness gate renders
+			 * nothing at all - with no error anywhere, because nothing threw.
+			 *
+			 * Measured, not theorised: with a refresh token present and no access
+			 * token, the page rendered an empty shell and never obtained a token.
+			 *
+			 * A plain `fetch` has no such dependency. It needs no socket, no session,
+			 * and nothing but the refresh token - which is exactly what a refresh is.
+			 */
+			const response = await fetch(`${this.url}/api/action`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					path: 'signInProxy:signInProxy',
+					args: { refreshToken },
+					format: 'json'
+				})
 			});
-			if (result.tokens) {
-				writeTokens(result.tokens);
-				return result.tokens.token;
+			const envelope = (await response.json()) as {
+				status?: string;
+				value?: { tokens?: Tokens | null } | null;
+			};
+			const tokens = envelope.value?.tokens;
+			if (tokens?.token) {
+				writeTokens(tokens);
+				return tokens.token;
 			}
 			return null;
 		} catch (error) {

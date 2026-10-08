@@ -217,23 +217,51 @@ async function main() {
   console.log('\n== 5. flows with no address still work ==');
   /**
    * The client refreshes an expired session with `auth:signIn({ refreshToken })` -
-   * no email, no password. An earlier version of the proxy rejected any request
-   * without an email as a credential failure, which would have logged everyone out
-   * the moment an access token aged out: an hour-boundary failure that looks like
-   * a credentials problem and is invisible until it happens to a real user.
+   * no email, no password. Two bugs lived on this path:
+   *
+   *   1. it rejected any request without an email as a credential failure, so every
+   *      session would be logged out the moment its access token aged out;
+   *   2. it then forwarded `{ provider, params }`, which is the CREDENTIAL shape.
+   *      The refresh shape puts `refreshToken` at the top level, so it was dropped
+   *      and every refresh through the proxy failed while the raw action worked.
+   *
+   * Both were invisible until a refresh was actually attempted with a real token,
+   * which is why the second check uses a genuine one rather than a fake.
    */
-  const refreshProbe = await call('signInProxy:signInProxy', { refreshToken: 'not-a-real-token' }, 'action');
-  const refreshMsg = stableMessage(refreshProbe);
+  const fakeRefresh = await call('signInProxy:signInProxy', { refreshToken: 'not-a-real-token' }, 'action');
+  const fakeMsg = stableMessage(fakeRefresh);
   check(
-    'a refresh-token call is not answered with a credential error',
-    !/not right/i.test(refreshMsg),
-    refreshMsg
+    'a bogus refresh token is not answered with a credential error',
+    !/not right/i.test(fakeMsg),
+    fakeMsg
+  );
+
+  const refreshAccount = `qa-refresh-${stamp}@example.com`;
+  const made = await attempt('signUp', refreshAccount, password, true);
+  check('an account for the refresh test exists', made.status === 'success', stableMessage(made));
+
+  const forRefresh = await attempt('signIn', refreshAccount, password, true);
+  const realRefreshToken = forRefresh.value?.tokens?.refreshToken;
+  check('a real refresh token was obtained', typeof realRefreshToken === 'string' && realRefreshToken.length > 20);
+
+  const realRefresh = await call('signInProxy:signInProxy', { refreshToken: realRefreshToken }, 'action');
+  check(
+    'a REAL refresh token works through the proxy',
+    realRefresh.status === 'success',
+    `status=${realRefresh.status} ${stableMessage(realRefresh)}`
   );
   check(
-    'a refresh-token call is rejected as a refresh, not as a password',
-    /refresh|token|invalid|argument/i.test(refreshMsg),
-    refreshMsg
+    'the refresh returned new tokens',
+    typeof realRefresh.value?.tokens?.token === 'string',
+    JSON.stringify(realRefresh.value ?? {}).slice(0, 120)
   );
+
+  // And the raw action still works, so the pass above is the proxy and not the
+  // library doing it behind us. A fresh token, since the first one was just spent.
+  const second = await attempt('signIn', refreshAccount, password, true);
+  const rawToken = second.value?.tokens?.refreshToken;
+  const rawRefresh = await call('auth:signIn', { refreshToken: rawToken }, 'action');
+  check('the raw action still refreshes', rawRefresh.status === 'success', stableMessage(rawRefresh));
 
   console.log('\n== 6. malformed input is not flattened into a credential error ==');
   // A caller bug must stay debuggable. "That password is required" says nothing

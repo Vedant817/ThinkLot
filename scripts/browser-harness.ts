@@ -117,6 +117,17 @@ export class Page {
 		await sleep(60);
 	}
 
+	/** Go offline or back online, leaving the page and its state intact. */
+	async network(offline: boolean): Promise<void> {
+		await this.call('Network.enable');
+		await this.call('Network.emulateNetworkConditions', {
+			offline,
+			latency: 0,
+			downloadThroughput: offline ? 0 : -1,
+			uploadThroughput: offline ? 0 : -1
+		});
+	}
+
 	/**
 	 * Force the colour scheme.
 	 *
@@ -151,6 +162,31 @@ export class Page {
 
 let ws: WebSocket;
 let chrome: ChildProcess | null = null;
+
+/**
+ * Open another tab in the same browser.
+ *
+ * Shares the profile, so it shares `localStorage` and therefore the session - which
+ * is the whole point for anything involving two clients. `Page` alone can only ever
+ * make one target, and a "second client" made by reusing the same page is not a
+ * second client at all.
+ */
+export async function newTab(): Promise<Page> {
+	const page = await Page.connect(ws);
+	await page.init();
+	return page;
+}
+
+/**
+ * Cut the network without closing the tab.
+ *
+ * This is how "what does the app do when the connection drops" gets asked. The
+ * alternative - closing the page - destroys the in-memory state, so it tests
+ * nothing about recovery.
+ */
+export async function setOffline(page: Page, offline: boolean): Promise<void> {
+	await page.network(offline);
+}
 
 /** Raw CDP. `sessionId` omitted targets the browser, present targets a page. */
 function rpc(target: WebSocket, method: string, params: any = {}, sessionId?: string): Promise<any> {

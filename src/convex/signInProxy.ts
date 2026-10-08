@@ -182,6 +182,14 @@ export const signInProxy = action({
 	args: {
 		provider: v.optional(v.string()),
 		/**
+		 * The refresh-token exchange sends `{ refreshToken }` at the TOP level - it is
+		 * not a credential flow and has no `params`. Declared here because Convex
+		 * rejects unknown fields, so omitting it meant the proxy refused every refresh
+		 * with "Object contains extra field `refreshToken`" while the raw action worked
+		 * fine. That is the whole long-lived-session failure in one validator.
+		 */
+		refreshToken: v.optional(v.string()),
+		/**
 		 * Passed through to the library untouched apart from reading `email` and
 		 * `flow` out of it. `v.any()` rather than a closed shape, because the library
 		 * accepts flows this proxy has never heard of and must not reject them.
@@ -212,16 +220,20 @@ export const signInProxy = action({
 		// are passed straight through: there is no account to find, so there is
 		// nothing to throttle and nothing to normalise.
 		//
-		// This check was `throw new Error(GENERIC_FAILURE)` on the first version,
-		// which broke every silent token refresh: the client calls
-		// `auth:signIn({ refreshToken })` with no email, so once a session aged past
-		// its access token the app would have been logged out on an hour boundary
-		// with "That email or password is not right."
+		// `args` is forwarded WHOLE, not rebuilt. Two bugs lived here, both found by
+		// testing rather than reading:
+		//
+		// 1. This check used to `throw new Error(GENERIC_FAILURE)`. The client
+		//    refreshes with `auth:signIn({ refreshToken })` and no email, so every
+		//    session would have been logged out the moment its access token aged out -
+		//    an hour-boundary failure presenting as "wrong password".
+		// 2. It then forwarded `{ provider, params }`, which is the credential shape.
+		//    The refresh shape puts `refreshToken` at the TOP level, so it was being
+		//    dropped on the floor and every refresh through this proxy failed while the
+		//    raw action worked - which is exactly the long-lived-session case this
+		//    project had listed as unverified.
 		if (!email) {
-			return await ctx.runAction(api.auth.signIn, {
-				provider: args.provider ?? 'password',
-				params
-			} as never);
+			return await ctx.runAction(api.auth.signIn, args as never);
 		}
 
 		let result: unknown;
