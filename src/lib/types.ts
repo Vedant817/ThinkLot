@@ -52,9 +52,22 @@ export type IdeaStats = {
 	favorites: number;
 };
 
+/**
+ * One entry in an idea's history.
+ *
+ * `kind` is a wire value, not a closed union: a timeline that hides events it does
+ * not recognise is lying by omission, and the next kind added would simply vanish
+ * from the screen. Unknown kinds are rendered as their own name.
+ */
+export type TimelineEvent = {
+	id: string;
+	kind: string;
+	detail: string | null;
+	createdAt: number;
+};
+
 /** One checklist row. Mirrors `ideaTasks` in the Convex schema. */
-export type IdeaTask = {
-	_id: string;
+export type IdeaTask = {	_id: string;
 	ideaId: string;
 	title: string;
 	completed: boolean;

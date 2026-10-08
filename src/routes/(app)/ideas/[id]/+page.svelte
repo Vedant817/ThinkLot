@@ -6,8 +6,10 @@
 	import { api } from '../../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { maturityLabel, maturityOf } from '$lib/maturity';
-	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask } from '$lib/types';
+	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask, type TimelineEvent } from '$lib/types';
 	import { page } from '$app/state';
+	import { describeEvent } from '$lib/timeline';
+	import { relativeDay } from '$lib/dates';
 
 	let { data } = $props();
 
@@ -28,7 +30,7 @@
 	 * Not `$state`, for the same reason as the list page: an effect that disposes
 	 * and recreates a handle it also tracks re-schedules itself until it dies.
 	 */
-	let handle = $state<QueryHandle<{ idea: Idea; tasks: IdeaTask[] }> | null>(null);
+	let handle = $state<QueryHandle<{ idea: Idea; tasks: IdeaTask[]; events: TimelineEvent[] }> | null>(null);
 
 	// The idea itself is always derived straight from the subscription, so a
 	// realtime edit from another device shows up here immediately.
@@ -49,7 +51,7 @@
 
 	$effect(() => {
 		const id = data.id;
-		const next = watchQuery<{ idea: Idea; tasks: IdeaTask[] }>(convex.client!, api.ideas.get, {
+		const next = watchQuery<{ idea: Idea; tasks: IdeaTask[]; events: TimelineEvent[] }>(convex.client!, api.ideas.get, {
 			ideaId: id
 		});
 		// WRITE ONLY - see the note in (app)/ideas/+page.svelte about the
@@ -479,6 +481,36 @@
 
 				<!-- Checklist: the bridge from "an idea I keep" to "a thing I do" -->
 				<TaskChecklist ideaId={idea._id} {tasks} />
+
+				<!--
+					Timeline: what actually happened to this idea.
+
+					The events have been recorded on every capture, stage move, archive,
+					snooze and judgement since before this feature existed - the only thing
+					that read them was the delete cascade. So this is a view over data that
+					was already correct.
+
+					`describeEvent` is imported from the Convex module rather than
+					reworded here, so the web and mobile clients cannot describe the same
+					event differently.
+				-->
+				{#if (handle?.current?.events ?? []).length > 0}
+					<div class="mt-6">
+						<h3 class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							Timeline
+						</h3>
+						<ol class="mt-2 space-y-1.5">
+							{#each handle?.current?.events ?? [] as event (event.id)}
+								<li class="flex items-baseline gap-3 text-sm">
+									<span class="w-20 shrink-0 font-mono text-[11px] text-ink-3">
+										{relativeDay(event.createdAt)}
+									</span>
+									<span class="min-w-0 flex-1 text-ink-2">{describeEvent(event.kind, event.detail)}</span>
+								</li>
+							{/each}
+						</ol>
+					</div>
+				{/if}
 
 				<!-- Tags -->
 				<div class="mt-5">

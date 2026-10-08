@@ -6,6 +6,7 @@
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import { api } from '../../../convex/_generated/api';
 	import { byPriority, displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
+	import { relativeDay } from '$lib/dates';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
 	import { page } from '$app/state';
 	import { readFilters, filtersQuery, syncFilters, type Filters } from '$lib/filters.svelte';
@@ -266,13 +267,7 @@
 		strong: 'bg-signal'
 	};
 
-	function relativeDay(ts: number): string {
-		const days = Math.floor((Date.now() - ts) / 86_400_000);
-		if (days <= 0) return 'today';
-		if (days === 1) return 'yesterday';
-		if (days < 30) return `${days}d`;
-		return `${Math.floor(days / 30)}mo`;
-	}
+
 </script>
 
 <svelte:head>

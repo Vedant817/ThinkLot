@@ -54,8 +54,12 @@ behind the ones that do not.
       judged, actioned, committed) plus the single most useful next step. On the idea
       detail page and beside the score on the dashboard. Verified by
       `verify:maturity` and, rendered, by `verify:web`.
-- [ ] **Idea timeline** — the history of an idea: captured, scored, moved, snoozed,
-      checked off. `ideaEvents` already records this and is under-used.
+- [x] **Idea timeline** — the data already existed and nothing read it. `ideaEvents`
+      has been written on every capture, stage move, archive and snooze since
+      before this feature existed; the only reader was the delete cascade. Served
+      from `ideas:get` so it costs no second subscription, capped at 50, newest
+      first, with wording shared in `src/lib/timeline.ts`. Also added the one
+      milestone nothing recorded: becoming judged.
 - [ ] **Idea clustering** — group related ideas by shared tags. Deterministic, no
       model required.
 - [ ] **Idea roadmap builder** — order ideas into now / next / later from scores and

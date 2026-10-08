@@ -326,9 +326,50 @@ export const get = query({
 			.query('ideaTasks')
 			.withIndex('by_idea', (q) => q.eq('ideaId', idea._id))
 			.collect();
-		return { idea, tasks: tasks.sort((a, b) => a.position - b.position) };
+
+		/**
+		 * The idea's history, newest first - spec section 8's "idea timeline".
+		 *
+		 * `ideaEvents` has been written on every capture, status move, archive and
+		 * snooze since before this feature existed, and the only thing that ever read
+		 * it was the delete cascade. So the data was already correct and complete;
+		 * nobody could see it.
+		 *
+		 * Served from `get` rather than as its own query on purpose: the detail page
+		 * already subscribes here, so a separate subscription would be a second
+		 * WebSocket message per change for data that always arrives together.
+		 *
+		 * Capped, newest first, because a timeline nobody scrolls to the end of is
+		 * not a timeline. Old entries are not deleted - they simply fall off, so a
+		 * long-lived idea loses its early history from view rather than from the
+		 * database.
+		 */
+		const raw = await ctx.db
+			.query('ideaEvents')
+			.withIndex('by_idea', (q) => q.eq('ideaId', idea._id))
+			.collect();
+
+		const events = raw
+			.sort((a, b) => b.createdAt - a.createdAt)
+			.slice(0, TIMELINE_LIMIT)
+			.map((event) => ({
+				id: event._id,
+				kind: event.kind,
+				detail: event.detail ?? null,
+				createdAt: event.createdAt
+			}));
+
+		return { idea, tasks: tasks.sort((a, b) => a.position - b.position), events };
 	}
 });
+
+/**
+ * How much history one idea's timeline shows.
+ *
+ * Fifty is roughly a year of weekly reviews for a single idea, which is past the
+ * point where anybody scrolls further.
+ */
+const TIMELINE_LIMIT = 50;
 
 /**
  * The capture path. Deliberately tiny: a title is the only required input, so
@@ -538,6 +579,33 @@ export const update = mutation({
 		if ('revisitAt' in args) patch.revisitAt = normaliseRevisitAt(args.revisitAt);
 
 		await ctx.db.patch(args.ideaId, patch);
+
+		/**
+		 * Record the moment an idea became judged, or stopped being judged.
+		 *
+		 * Scoring was the one milestone the timeline could not see: capture, stage
+		 * moves, archiving and snoozes all wrote an event, and the single most
+		 * important transition in the lifecycle - "this is now a decision" - left no
+		 * trace at all.
+		 *
+		 * Recorded only when the judged/unscored state actually FLIPS, not on every
+		 * slider drag. The score inputs commit on change, so a user nudging impact
+		 * from 7 to 8 would otherwise write an event per nudge and bury the real
+		 * milestone in noise.
+		 */
+		const wasJudged = priorityOf(idea) >= 0;
+		const isJudged = priorityOf({ ...idea, ...patch } as Doc<'ideas'>) >= 0;
+		if (wasJudged !== isJudged) {
+			const score = priorityOf({ ...idea, ...patch } as Doc<'ideas'>);
+			await ctx.db.insert('ideaEvents', {
+				ideaId: args.ideaId,
+				userId: idea.userId,
+				kind: isJudged ? 'scored' : 'unscored',
+				detail: isJudged ? score.toFixed(1) : undefined,
+				createdAt: nowMs()
+			});
+		}
+
 		return args.ideaId;
 	}
 });

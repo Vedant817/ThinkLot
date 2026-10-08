@@ -450,7 +450,44 @@ Check "an archived idea is counted in archived, not active" ($dashStats.archived
 $dashList = Call 'ideas:list' (@{ sortPriority=$true; limit=20 } | ConvertTo-Json -Compress) $tokenA
 Check "the ranking excludes archived ideas" (@($dashList.value.ideas | Where-Object { $_._id -eq $dashId.value }).Count -eq 0) "archived idea present in top ranking"
 
-Write-Host "`n== 15. Brute-force throttle (auth:signIn) ==" -ForegroundColor Cyan
+Write-Host "`n== 11i. Idea timeline (spec section 8) ==" -ForegroundColor Cyan
+# The events have been written on capture, status moves and archiving since before
+# the timeline existed, and the only thing that read them was the delete cascade.
+# These check the history is real, ordered, and that the judged transition - which
+# nothing recorded before - now is.
+$tlId = Call 'ideas:capture' (@{ title='timeline probe'; problem='p' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'ideas:setStatus' (@{ ideaId=$tlId.value; status='reviewing' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'ideas:setStatus' (@{ ideaId=$tlId.value; status='ready' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$tlId.value; impact=7; confidence=6; effort=2 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$tl = (Call 'ideas:get' (@{ ideaId=$tlId.value } | ConvertTo-Json -Compress) $tokenA).value
+$tlKinds = @($tl.events | ForEach-Object { $_.kind })
+Check "the timeline records the capture" ($tlKinds -contains 'captured') "kinds=$($tlKinds -join ',')"
+Check "the timeline records stage moves" (@($tlKinds | Where-Object { $_ -eq 'status' }).Count -ge 2) "kinds=$($tlKinds -join ',')"
+Check "the timeline records the moment an idea became judged" ($tlKinds -contains 'scored') "kinds=$($tlKinds -join ',')"
+$tlTimes = @($tl.events | ForEach-Object { $_.createdAt })
+$tlSorted = $true
+for ($i = 1; $i -lt $tlTimes.Count; $i++) { if ($tlTimes[$i] -gt $tlTimes[$i-1]) { $tlSorted = $false } }
+Check "the timeline is newest first" $tlSorted "times=$($tlTimes -join ',')"
+
+# Scoring again must NOT add another event: the inputs commit on change, so a user
+# nudging a slider would otherwise bury the real milestone in noise.
+$tlBefore = @($tl.events).Count
+$null = Call 'ideas:update' (@{ ideaId=$tlId.value; impact=8 } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$tlAfter = @((Call 'ideas:get' (@{ ideaId=$tlId.value } | ConvertTo-Json -Compress) $tokenA).value.events).Count
+Check "adjusting a score does not spam the timeline" ($tlAfter -eq $tlBefore) "$tlBefore -> $tlAfter"
+
+# Clearing the score IS a state change worth recording.
+$null = Call 'ideas:update' (@{ ideaId=$tlId.value; confidence=$null } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$tlCleared = (Call 'ideas:get' (@{ ideaId=$tlId.value } | ConvertTo-Json -Compress) $tokenA).value.events
+Check "clearing a score is recorded" (@($tlCleared | ForEach-Object { $_.kind }) -contains 'unscored')
+
+# And it must not be readable by anyone else. Asserting the VALUE is null rather
+# than that the call is refused: `ownedIdea` returns null for an idea that is not
+# yours, which is the better shape - a refusal would confirm the id exists.
+$tlOther = Call 'ideas:get' (@{ ideaId=$tlId.value } | ConvertTo-Json -Compress) $tokenB 'query'
+Check "another user gets nothing for someone else's idea" ($null -eq $tlOther.value) "status=$($tlOther.status) value=$($tlOther.value | ConvertTo-Json -Compress)"
+
+Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #
 # The limiter is keyed on the account id, and this deliberately LOCKS that
