@@ -5,8 +5,34 @@
 	import { api } from '../../../convex/_generated/api';
 	import { displayScore, lotPlate } from '$lib/scoring';
 	import type { IdeaStatus } from '$lib/types';
+	import { page } from '$app/state';
+	import { syncFilters } from '$lib/filters.svelte';
 
 	type Reason = 'stale' | 'parked' | 'strong' | 'snoozed' | 'untouched_inbox';
+
+	/**
+	 * Human wording for each rule, because a queue that cannot explain itself is
+	 * noise.
+	 *
+	 * Declared at the top rather than next to its first use: `?reason=` from the
+	 * URL is validated against these keys during component setup, so anything this
+	 * depends on has to exist before setup runs. Validating a param against a const
+	 * declared further down is a temporal-dead-zone crash, not a lint warning.
+	 */
+	const REASON_COPY: Record<Reason, { label: string; help: string }> = {
+		stale: { label: 'stale', help: 'Untouched for 7 days or more' },
+		parked: { label: 'parked', help: 'Parked and never revisited' },
+		strong: { label: 'strong', help: 'Scores 24 or higher' },
+		snoozed: { label: 'due back', help: 'You asked to look at this again' },
+		untouched_inbox: { label: 'undecided', help: 'Never scored, still sitting in the inbox' }
+	};
+
+	/** Derived, so a new reason cannot be added to the copy and forgotten here. */
+	const REASONS = Object.keys(REASON_COPY) as Reason[];
+
+	function isReason(value: string | null): value is Reason {
+		return value !== null && (REASONS as string[]).includes(value);
+	}
 
 	type Item = {
 		id: string;
@@ -22,9 +48,28 @@
 	type Queue = { items: Item[]; total: number; truncated: boolean };
 
 	let handle = $state<QueryHandle<Queue> | null>(null);
-	let reasonFilter = $state<Reason | 'all'>('all');
 	let busyId = $state<string | null>(null);
 	let problem = $state<string | null>(null);
+
+	/**
+	 * The reason filter lives in the URL.
+	 *
+	 * "Show me the high-scoring ideas I have not looked at" is a view worth
+	 * sending to someone, and it used to evaporate on refresh. Unvalidated input
+	 * falls back to "all" rather than matching nothing, so a typo in a shared link
+	 * shows the whole queue instead of an empty screen with no explanation.
+	 */
+	const initialReason = page.url.searchParams.get('reason');
+	let reasonFilter = $state<Reason | 'all'>(isReason(initialReason) ? initialReason : 'all');
+
+	syncFilters(() => ({
+		search: '',
+		tags: [],
+		archived: false,
+		sort: 'capture',
+		view: 'cards',
+		reason: reasonFilter === 'all' ? null : reasonFilter
+	}));
 
 	$effect(() => {
 		convex.start();
@@ -37,15 +82,6 @@
 			next.dispose();
 		};
 	});
-
-	/** Human wording for each rule, because a queue that cannot explain itself is noise. */
-	const REASON_COPY: Record<Reason, { label: string; help: string }> = {
-		stale: { label: 'stale', help: 'Untouched for 7 days or more' },
-		parked: { label: 'parked', help: 'Parked and never revisited' },
-		strong: { label: 'strong', help: 'Scores 24 or higher' },
-		snoozed: { label: 'due back', help: 'You asked to look at this again' },
-		untouched_inbox: { label: 'undecided', help: 'Never scored, still sitting in the inbox' }
-	};
 
 	const items = $derived(handle?.current?.items ?? []);
 	const truncated = $derived(handle?.current?.truncated ?? false);
@@ -65,8 +101,6 @@
 		}
 		return map;
 	});
-
-	const REASONS = Object.keys(REASON_COPY) as Reason[];
 
 	function ago(ts: number): string {
 		const days = Math.floor((now - ts) / 86_400_000);

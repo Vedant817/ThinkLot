@@ -6,6 +6,7 @@
 	import { api } from '../../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStatus, type IdeaTask } from '$lib/types';
+	import { page } from '$app/state';
 
 	let { data } = $props();
 
@@ -230,7 +231,23 @@
 </svelte:head>
 
 <div class="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
-	<a href="/ideas" class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink">
+	<!--
+		The back link keeps whatever filters you arrived with.
+
+		The list puts its state in the query string and appends it to idea links, so
+		arriving here from a search for "offline" means the URL already carries
+		`?q=offline`. Reusing this page's own query string is enough to return to
+		the list you left.
+
+		Reusing it is safe only because this page defines no query parameters of its
+		own - it does not filter or sort anything. If it ever grows one, this has to
+		stop passing the whole string through, or "back to the lot" would come back
+		filtered by the detail page's own controls.
+	-->
+	<a
+		href={`/ideas${page.url.search}`}
+		class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink"
+	>
 		← Back to the lot
 	</a>
 

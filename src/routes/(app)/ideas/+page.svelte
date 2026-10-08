@@ -7,11 +7,63 @@
 	import { api } from '../../../convex/_generated/api';
 	import { byPriority, displayScore, lotPlate, priorityScore, scoreBand, scoreBarWidth } from '$lib/scoring';
 	import { IDEA_STATUSES, type Idea, type IdeaStats } from '$lib/types';
+	import { page } from '$app/state';
+	import { readFilters, filtersQuery, syncFilters, type Filters } from '$lib/filters.svelte';
 
-	let search = $state('');
+	/**
+	 * List state lives in the URL, not in the component.
+	 *
+	 * It used to be five pieces of `$state`, which is invisible to the browser and
+	 * to the back button. Three real consequences, all of which a user hits within
+	 * a minute of using the app:
+	 *
+	 *   - "← Back to the lot" on the detail page is a plain `/ideas` link, so it
+	 *     navigates fresh and throws away the search, the tag filters, the sort
+	 *     and the chosen view. Search for something, open an idea, go back, and
+	 *     the work you just did is silently gone. That link is a lie about where
+	 *     it goes.
+	 *   - A refresh loses every filter with no warning.
+	 *   - There is no way to share or bookmark a filtered view, so "the ideas
+	 *     tagged urgent" is not a link anyone can send.
+	 *
+	 * The mechanics live in `$lib/filters.svelte`, shared with the review queue
+	 * and the archive, which had the same defect independently.
+	 */
+	const initial = readFilters(page.url);
 
-	/** Debounced copy of `search`, sent to the server. Typing must not re-query. */
-	let searchQuery = $state('');
+	let search = $state(initial.search);
+	let tagFilter = $state<string[]>(initial.tags);
+	let showArchived = $state(initial.archived);
+	let sortBy = $state<Filters['sort']>(initial.sort);
+
+	/**
+	 * Which of the spec's two views this is.
+	 *
+	 * Section 5.2 asks for both, with different fields on purpose: "list view —
+	 * scan and search quickly, must show title, status, tags, favorite" against
+	 * "card view — evaluate ideas visually, must show title, short description,
+	 * tags, status". The description is the whole difference, so the list drops it
+	 * and gets denser rather than being the card with the preview hidden.
+	 *
+	 * There was no toggle and no list view at all for most of the project, while
+	 * the roadmap showed "Card view + list view toggle" as done: what existed was
+	 * one layout, which happened to satisfy the card half of that line.
+	 *
+	 * URL-backed like the rest of the list state, so the choice survives the trip
+	 * into an idea and back. Defaulting to cards only when the URL says nothing.
+	 */
+	let view = $state<Filters['view']>(initial.view);
+
+	/**
+	 * Debounced copy of `search`, sent to the server. Typing must not re-query.
+	 *
+	 * Seeded from the URL rather than from `search`, so that opening a shared link
+	 * like `/ideas?q=offline` runs its first query WITH the filter. Seeding from
+	 * `search` would mean the first request went out unfiltered and the correct
+	 * results arrived 250ms later - a visible flash of the wrong list, and a wasted
+	 * round trip on every shared link.
+	 */
+	let searchQuery = $state(initial.search);
 
 	/**
 	 * Debounce typing into a query argument.
@@ -35,24 +87,21 @@
 		return () => clearTimeout(timer);
 	});
 
-	let tagFilter = $state<string[]>([]);
-	let showArchived = $state(false);
-	let sortBy = $state<'capture' | 'priority'>('capture');
-
 	/**
-	 * Which of the spec's two views this is.
+	 * Mirror the controls into the query string.
 	 *
-	 * Section 5.2 asks for both, with different fields on purpose: "list view —
-	 * scan and search quickly, must show title, status, tags, favorite" against
-	 * "card view — evaluate ideas visually, must show title, short description,
-	 * tags, status". The description is the whole difference, so the list drops it
-	 * and gets denser rather than being the card with the preview hidden.
-	 *
-	 * There was no toggle and no list view at all for most of the project, while
-	 * the roadmap showed "Card view + list view toggle" as done: what existed was
-	 * one layout, which happened to satisfy the card half of that line.
+	 * A getter rather than five arguments, so this cannot drift out of sync with
+	 * the controls it is supposed to be mirroring: adding a sixth control is one
+	 * line in the object, not a signature change plus a call site.
 	 */
-	let view = $state<'cards' | 'list'>('cards');
+	syncFilters(() => ({
+		search,
+		tags: tagFilter,
+		archived: showArchived,
+		sort: sortBy,
+		view,
+		reason: null
+	}));
 
 	/**
 	 * Subscription handles are deliberately NOT `$state`.
@@ -128,6 +177,21 @@
 	});
 
 	const stats: IdeaStats | undefined = $derived(statsHandle?.current);
+
+	/**
+	 * The current filters as a query string, appended to idea links.
+	 *
+	 * So the detail page's "← Back to the lot" can return to exactly the list that
+	 * was left, rather than to an unfiltered one. Without this the filters would
+	 * survive only the browser's own back button, and the app's own back link would
+	 * be the single affordance that loses them.
+	 *
+	 * Built from the same `Filters` object the address bar is synced from, so the
+	 * link and the URL can never disagree about what the current view is.
+	 */
+	const lotQuery = $derived(
+		filtersQuery({ search, tags: tagFilter, archived: showArchived, sort: sortBy, view, reason: null })
+	);
 
 	function toggleTag(tag: string) {
 		tagFilter = tagFilter.includes(tag)
@@ -414,7 +478,7 @@
 						</span>
 
 						<a
-							href={`/ideas/${idea._id}`}
+							href={`/ideas/${idea._id}${lotQuery}`}
 							class="min-w-0 flex-1 truncate text-sm text-ink underline-offset-4 hover:underline"
 						>
 							{idea.title}
@@ -496,7 +560,7 @@
 								inside a link, which is both invalid and unusable on a phone.
 							-->
 							<a
-								href={`/ideas/${idea._id}`}
+								href={`/ideas/${idea._id}${lotQuery}`}
 								class="text-[15px] leading-6 font-medium text-ink underline-offset-4 hover:underline"
 							>
 								{idea.title}

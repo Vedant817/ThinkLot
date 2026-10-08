@@ -6,13 +6,40 @@
 	import { api } from '../../../convex/_generated/api';
 	import { displayScore, lotPlate, priorityScore } from '$lib/scoring';
 	import type { Idea } from '$lib/types';
+	import { page } from '$app/state';
+	import { readFilters, syncFilters } from '$lib/filters.svelte';
 
 	type Lot = { ideas: Idea[]; truncated: boolean; total: number };
 
 	let handle = $state<QueryHandle<Lot> | null>(null);
-	let search = $state('');
 	let restoringId = $state<string | null>(null);
 	let problem = $state<string | null>(null);
+
+	/**
+	 * Search is in the URL, for the same reason as the lot's.
+	 *
+	 * Searching the archive is how you find the one idea you put away six months
+	 * ago, which makes it the single most shareable view in the app - "here is the
+	 * idea we discussed in March" - and it used to be unreproducible because the
+	 * query lived in component state. `?q=` is shared with the lot, so the same
+	 * search works in both places.
+	 */
+	const initial = readFilters(page.url);
+	let search = $state(initial.search);
+
+	syncFilters(() => ({
+		search,
+		tags: [],
+		// Left implicit rather than written as `archived=1`. This route always
+		// queries with `includeArchived: true` because that is what the page IS, so
+		// writing the param would put `?archived=1` on every archive URL - and any
+		// such link pasted into the lot would silently switch the lot to showing
+		// archived ideas.
+		archived: false,
+		sort: 'capture',
+		view: 'cards',
+		reason: null
+	}));
 
 	/**
 	 * Debounced copy of `search`, sent to the server.
@@ -22,8 +49,11 @@
 	 * JavaScript. Filtering the capped page in the browser is worse than useless
 	 * past 250 rows: an older archived idea is not merely absent from results, it
 	 * cannot be found or restored at all.
+	 *
+	 * Seeded from the URL so a shared archive link runs its first query WITH the
+	 * filter, rather than flashing the unfiltered archive first.
 	 */
-	let searchQuery = $state('');
+	let searchQuery = $state(initial.search);
 
 	$effect(() => {
 		const value = search;
