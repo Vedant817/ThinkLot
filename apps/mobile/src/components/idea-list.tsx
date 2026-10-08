@@ -151,7 +151,10 @@ export function IdeaList({
         keyExtractor={(idea) => idea._id}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={header}
-        contentContainerStyle={{ paddingBottom: 30 }}
+        // Must clear the tab bar, not just the screen edge. At 360x640dp the last
+        // idea's title sat underneath it, because 30 is far less than the 58dp
+        // bar plus its safe-area inset.
+        contentContainerStyle={{ paddingBottom: 100 }}
         ListEmptyComponent={
           !query.error ? (
             query.data ? (
@@ -178,13 +181,18 @@ export function IdeaList({
             }
             style={({ pressed }) => ({
               marginHorizontal: 20,
-              paddingVertical: 18,
-              paddingHorizontal: cards ? 16 : 0,
+              paddingVertical: 14,
+              paddingHorizontal: cards ? 14 : 0,
               marginVertical: cards ? 6 : 0,
-              backgroundColor: cards ? c.panel : c.paper,
+              // Card view matches the <Card> primitive exactly - paper on a 1px
+              // rule with an 8px radius. It was c.panel, which on the new palette
+              // is #f6f6f4 against #ffffff paper: a border drawn round a surface
+              // the eye cannot see.
+              backgroundColor: c.paper,
               borderWidth: cards ? 1 : 0,
               borderTopWidth: 1,
               borderColor: c.line,
+              borderRadius: cards ? 8 : 0,
               opacity: pressed ? 0.6 : 1,
               gap: 8,
             })}

@@ -336,7 +336,16 @@ export function ChipRow({ children }: PropsWithChildren) {
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 8, paddingRight: 20, alignItems: "center" }}
+      /*
+        The strip bleeds to both screen edges so it reads as scrollable, but the
+        inset padding belongs on the CONTENT, not as a negative margin on the
+        viewport alone - that clipped the first chip's left border off at x=0.
+      */
+      contentContainerStyle={{
+        gap: 8,
+        paddingHorizontal: 20,
+        alignItems: "center",
+      }}
       style={{ marginHorizontal: -20, flexGrow: 0 }}
     >
       {children}
