@@ -17,6 +17,7 @@
     "verify:capture": "vite-node scripts/verify-capture-regressions.ts",
     "verify:list": "vite-node scripts/verify-list-filters.ts",
     "verify:lotquery": "vite-node scripts/verify-lot-query.ts",
+    "verify:web": "vite-node scripts/verify-web.ts",
     "verify:contracts": "node apps/ios/scripts/verify-contracts.mjs",
     "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:shortcuts && npm run verify:contracts"
   },

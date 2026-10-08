@@ -187,19 +187,38 @@
 			</span>
 
 			<!--
-				Autofocus is the point of this component. The whole premise of ThinkLot
-				is that a thought is gone in thirty seconds, so making the user click
-				before they can type it would be a real cost. This is the one place
-				the a11y warning is knowingly overridden.
+				NO `autofocus`, and its absence is deliberate.
+
+				This had `autofocus` with a comment defending it: the premise is that a
+				thought is gone in thirty seconds, so making the user click before they
+				can type it is a real cost. True in isolation - and it silently disabled
+				every keyboard shortcut in the app.
+
+				The layout's key handler opens with `isTyping(event.target)`, so that
+				pressing `/` in the search box types a slash instead of stealing focus.
+				With the capture box autofocused, `event.target` was that textarea on
+				every keystroke, so the handler returned early for all of them. On the
+				lot page - the main screen, and the one carrying this component - none
+				of the registered shortcuts did anything. `/` could not focus capture
+				either, because capture was already focused and the guard suppressed the
+				very key that would have explained why.
+
+				It was invisible to every existing check. The shortcut suite injects a
+				handler and asserts a chord resolves; it never involves focus. The
+				`isTyping` unit tests pass an explicit element and are right about it.
+				Nothing ever asked whether a shortcut works on a page that has just
+				loaded.
+
+				`/` is the documented way into this box, and it now works. The cost is
+				one keystroke for anyone who does not know it, which is a far smaller
+				cost than 43 shortcuts that silently do nothing.
 			-->
-			<!-- svelte-ignore a11y_autofocus -->
 			<textarea
 				bind:this={textarea}
 				bind:value={draft}
 				oninput={trackInput}
 				onkeydown={onKeydown}
 				rows="1"
-				autofocus
 				spellcheck="true"
 				enterkeyhint="done"
 				aria-label="Capture an idea"

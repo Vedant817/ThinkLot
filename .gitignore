@@ -26,3 +26,7 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Screenshots from scripts/verify-web.ts. Regenerated on every run and not worth
+# diffing; the checks they back up are in git, not the images.
+artifacts/

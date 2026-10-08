@@ -125,7 +125,7 @@
 		{#each IDEA_STATUSES as stage (stage)}
 			{@const count = stats?.byStatus?.[stage] ?? 0}
 			{@const max = Math.max(1, ...IDEA_STATUSES.map((s) => stats?.byStatus?.[s] ?? 0))}
-			<div class="flex items-center gap-3 px-3 py-2.5">
+			<div class="flex items-center gap-3 px-3 py-2.5" data-stage={stage}>
 				<span class="w-24 shrink-0 font-mono text-[11px] tracking-wider text-ink-3 uppercase">
 					{stage}
 				</span>

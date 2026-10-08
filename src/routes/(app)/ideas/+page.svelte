@@ -309,12 +309,25 @@
 
 	<!-- Filter row -->
 	<div class="flex flex-wrap items-center gap-2 py-3">
+		<!--
+			`w-full` below `sm`, then `sm:flex-1`.
+
+			The search was `min-w-0 flex-1` alone, and `flex-1` with `min-w-0` means
+			"shrink as much as you like". The filter row wraps, but the button group
+			does not, so on a 390px phone the input collapsed to about thirty pixels -
+			a grey sliver you cannot see into, let alone type into. The spec asks the
+			list view to "scan and search quickly", and search was impossible there.
+
+			Taking the full width on a phone forces the buttons onto their own line,
+			which is what wrapping is for.
+		-->
 		<input
 			type="search"
 			bind:value={search}
 			placeholder="Search ideas…"
 			aria-label="Search ideas"
-			class="min-w-0 flex-1 rounded-md border border-rule bg-panel px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper sm:max-w-xs"
+			data-testid="lot-search"
+			class="w-full rounded-md border border-rule bg-panel px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-signal focus:bg-paper sm:w-auto sm:min-w-0 sm:max-w-xs sm:flex-1"
 		/>
 
 		<div class="flex items-center gap-1">
