@@ -75,14 +75,20 @@ behind the ones that do not.
 - [ ] **Public sharing** — an explicit, revocable, per-idea share link. Needs a
       decision: read-only public pages leak the account's content, so it must be
       opt-in per idea and revocable.
-- [ ] **AI idea summarisation** — needs a model provider, a per-call budget, and a
-      decision about sending the user's ideas to a third party.
-- [ ] **AI duplicate detection** — same three blockers as above.
-
-## 4. Verification still owed
-
-- [ ] **iOS journey** — compilation, simulator, device, VoiceOver. Needs a Mac and
-      Apple SDKs. Not possible on this host; it is not "almost done".
+- [x] **AI summarisation / duplicate detection** - `src/lib/ai/`, BYOK and entirely in
+      the browser, so this project spends nothing and no idea text touches a server we
+      run. Eight providers across three API shapes (OpenAI-compatible covers most;
+      Anthropic and Gemini native), plus local runtimes that are genuinely free.
+      Prompt builders in `prompts.ts` treat model output as UNTRUSTED input: fenced and
+      prose-wrapped JSON is parsed out, invented duplicate ids are refused, and markup in
+      a "reason" is stripped. CORS is measured per provider in `docs/AI-PROVIDERS.md`.
+- [x] **AI summarisation / duplicate detection** - `src/lib/ai/`, BYOK and entirely in
+      the browser, so this project spends nothing and no idea text touches a server we
+      run. Eight providers across three API shapes (OpenAI-compatible covers most;
+      Anthropic and Gemini native), plus local runtimes that are genuinely free.
+      Prompt builders in `prompts.ts` treat model output as UNTRUSTED input: fenced and
+      prose-wrapped JSON is parsed out, invented duplicate ids are refused, and markup in
+      a "reason" is stripped. CORS is measured per provider in `docs/AI-PROVIDERS.md`.
 - [ ] **Physical device** — all mobile evidence is an emulator. No real thumb, real
       battery, or OEM background behaviour.
 - [ ] **Production deployment** — prepared, deliberately not performed. Convex

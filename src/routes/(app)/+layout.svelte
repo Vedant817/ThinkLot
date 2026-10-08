@@ -137,7 +137,11 @@
 	{ href: '/ideas', label: 'Lot', soon: false },
 		{ href: '/board', label: 'Board', soon: false },
 		{ href: '/review', label: 'Review', soon: false },
-		{ href: '/archive', label: 'Archive', soon: false }
+		{ href: '/archive', label: 'Archive', soon: false },
+		// Bring-your-own-key AI, in the browser. Listed last because it is the one
+		// destination that is optional, unconfigured for most people, and touches
+		// nothing else in the app when unused.
+		{ href: '/settings/ai', label: 'AI', soon: false }
 	];
 
 	/**

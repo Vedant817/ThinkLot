@@ -63,6 +63,16 @@
 	--warn-soft: #fdf1dc;
 	--bad: #a81f14;
 	--bad-soft: #fdeae8;
+	/*
+	 * Success, paired with --bad and used only for "this worked".
+	 *
+	 * Deliberately NOT --signal. Violet means "an action for you to take" in this app,
+	 * so a green confirmation must not be violet: reusing signal would make a passing
+	 * result look like a button, which is the one thing the palette rule exists to
+	 * prevent.
+	 */
+	--good: #1c6b3a;
+	--good-soft: #e7f4ec;
 
 	color-scheme: light;
 }
@@ -95,6 +105,8 @@
 	--warn-soft: #2b2010;
 	--bad: #f87171;
 	--bad-soft: #2c1614;
+	--good: #4ade80;
+	--good-soft: #12261a;
 
 	color-scheme: dark;
 }
@@ -123,6 +135,13 @@
 	--color-warn-soft: var(--warn-soft);
 	--color-bad: var(--bad);
 	--color-bad-soft: var(--bad-soft);
+	/*
+	 * Registered here because Tailwind only generates a utility for a variable that is
+	 * declared in @theme. Adding --good to the palettes above without this line leaves
+	 * `text-good` silently unstyled - which type-checks perfectly and looks broken.
+	 */
+	--color-good: var(--good);
+	--color-good-soft: var(--good-soft);
 }
 
 @layer base {

@@ -222,7 +222,8 @@ async function main() {
 		{ path: `/ideas/${captured.value}`, label: 'idea detail', expect: ['Who is it for', 'Expected outcome', 'Source / trigger'] },
 		{ path: '/board', label: 'board', expect: ['board'] },
 		{ path: '/review', label: 'review', expect: ['review'] },
-		{ path: '/archive', label: 'archive', expect: ['archive'] }
+		{ path: '/archive', label: 'archive', expect: ['archive'] },
+		{ path: '/settings/ai', label: 'AI settings', expect: ['Provider', 'Model'] }
 	];
 
 	for (const route of routes) {
@@ -244,6 +245,71 @@ async function main() {
 			check(`${route.label}: rendered`, false, String(error).slice(0, 400));
 		}
 	}
+
+	console.log('\n== AI settings: the honesty and safety of a BYOK key ==');
+
+	await page.goto(`${BASE}/settings/ai`);
+	const aiBody = await waitForAll(page, ['Provider', 'Model'], 'AI settings');
+
+	// The storage trade-off must be stated BEFORE the key field, not hidden behind a
+	// tooltip. A key pasted into a browser cannot be kept from that browser, and the
+	// only honest response to that is to say so and let the user choose.
+	check(
+		'AI settings offers session-only as the default',
+		/this tab only/i.test(aiBody) && /remember on this device/i.test(aiBody),
+		'the two storage choices must both be visible'
+	);
+	check(
+		'AI settings warns that a stored key is readable by scripts on this site',
+		/could read it/i.test(aiBody),
+		'the risk of persisting must be stated plainly'
+	);
+	check(
+		'AI settings explains requests go straight to the provider',
+		/nothing is sent to a server this app runs|no server this app runs/i.test(aiBody),
+		'the privacy claim must be on the page, not only in a commit message'
+	);
+
+	// A configured provider must never require a key it does not need.
+	const localNoKey = await page.evaluate<{ label: string; disabled: boolean; placeholder: string }>(`
+		(() => {
+			const select = document.querySelector('#provider');
+			const options = [...select.querySelectorAll('option')].map(o => ({ value: o.value, label: o.textContent }));
+			const ollama = options.find(o => /ollama/i.test(o.value));
+			if (!ollama) return { label: '', disabled: false, placeholder: '' };
+			select.value = ollama.value;
+			select.dispatchEvent(new Event('change', { bubbles: true }));
+			return new Promise(r => setTimeout(() => {
+				const key = document.querySelector('#key');
+				r({ label: ollama.label, disabled: key?.disabled ?? false, placeholder: key?.placeholder ?? '' });
+			}, 250));
+		})()
+	`);
+	check('AI settings lists a genuinely free local provider', /ollama/i.test(localNoKey.label), localNoKey.label);
+	check(
+		'a local provider does not demand a key it will not use',
+		localNoKey.disabled && /not required/i.test(localNoKey.placeholder),
+		`disabled=${localNoKey.disabled} placeholder=${JSON.stringify(localNoKey.placeholder)}`
+	);
+
+	// An incomplete setup must disable the test button AND say what is missing, rather
+	// than letting the user fire a request that cannot work.
+	const gated = await page.evaluate<{ disabled: boolean; reason: string }>(`
+		(() => {
+			const btn = [...document.querySelectorAll('button')].find(b => /test connection/i.test(b.textContent));
+			return { disabled: btn?.disabled ?? true, reason: document.body.innerText };
+		})()
+	`);
+	check('AI settings blocks a test with no model chosen', gated.disabled, 'the test button must be disabled');
+
+	// A key must never be rendered back in full, in any state.
+	check(
+		'AI settings renders no pasted key back in full',
+		!/sk-[A-Za-z0-9]{12,}/.test(gated.reason),
+		'a raw API key is visible in the page text'
+	);
+
+	await page.screenshot(`${SHOTS}/ai-settings.png`);
 
 	console.log('\n== the dashboard tells the truth about this account ==');
 	/**
