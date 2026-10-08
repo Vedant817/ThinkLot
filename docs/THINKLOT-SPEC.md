@@ -59,50 +59,94 @@ Drop ideas here in 30 seconds. You can make them "beautiful" later.
 - [x] Add Tailwind CSS
 - [x] Create base folders (`/components /lib /routes /stores /types`)
 - [x] Define `Idea` type (`src/types/Idea.ts`)
-- [ ] Create store (`src/stores/ideas.store.ts`)
-- [ ] Basic list + create form
-- [ ] LocalStorage persistence
+- [x] Basic list + create form
+- ~~Create store (`src/stores/ideas.store.ts`)~~ — **not built, deliberately.** Convex
+  owns the state; a second client-side store would duplicate it and immediately
+  drift. Replaced by hand-written reactive query bindings in
+  `src/lib/convex/query.svelte.ts` (Convex ships React bindings only).
+- ~~LocalStorage persistence~~ — **superseded.** Ideas live in Convex with
+  realtime sync, not in the browser. LocalStorage now holds only auth tokens and
+  the theme, and the capture bar holds an unsaved draft there deliberately.
 
 ### Week 2 — Tagging + search + statuses
 
-- [ ] Tag input + tag list filtering
-- [ ] Search by title/description
-- [ ] Status pipeline (Inbox / Parked / Reviewing / Ready)
-- [ ] Card view + list view toggle
+- [x] Tag input + tag list filtering
+- [x] Search by title/description
+- [x] Status pipeline (Inbox / Parked / Reviewing / Ready)
+- [x] Card view + list view toggle
 
 ### Week 3 — Kanban board + drag & drop
 
-- [ ] Board view route
-- [ ] Drag between statuses
-- [ ] Idea details page
+- [x] Board view route
+- [x] Drag between statuses
+- [x] Idea details page
 
 ### Week 4 — Scoring engine + dashboard
 
-- [ ] Impact / Effort / Confidence inputs
-- [ ] Priority score formula: `(Impact × Confidence) / Effort`
-- [ ] Sort + highlight top ideas
-- [ ] Dashboard widgets (counts + top ideas)
+- [x] Impact / Effort / Confidence inputs
+- [x] Priority score formula: `(Impact × Confidence) / Effort`
+- [x] Sort + highlight top ideas
+- [x] Dashboard widgets (counts + top ideas)
 
 ### Week 5 — Review system + reminders
 
-- [ ] Review queue rules (7 days untouched, parked, high score)
-- [ ] Snooze / archive / promote actions
-- [ ] Revisit reminder logic
+- [x] Review queue rules (7 days untouched, parked, high score)
+- [x] Snooze / archive / promote actions
+- [x] Revisit reminder logic
 
 ### Week 6 — Convert idea → action
 
-- [ ] IdeaTasks schema + checklist UI
-- [ ] Progress indicator per idea
+- [x] IdeaTasks schema + checklist UI
+- [x] Progress indicator per idea
 
 ### Week 7 — Backend + auth
 
-- [ ] Auth + sync
+- [x] Auth + sync
 
 ### Week 8 — Polish + deploy
 
-- [ ] Keyboard shortcuts
-- [ ] Dark mode
-- [ ] Deploy
+- [x] Keyboard shortcuts
+- [x] Dark mode
+- [x] Deploy
+
+> **Deploy status:** the repository is deploy-ready (multi-stage Dockerfile,
+> `.env.example`, `/healthz` that returns 503 on a missing `PUBLIC_CONVEX_URL`,
+> and `docs/DEPLOY.md`). **No deployment has been performed** — a Convex
+> production deployment is billed separately and creating one, plus a public URL,
+> is the owner's decision. See `docs/DEPLOY.md`.
+
+## 3.1 What "done" means here, and what is still open
+
+All eight weeks are implemented. None of them has been verified by a person
+looking at the screen, because no browser has ever been attached to the
+development session for this project. That distinction matters more than the
+checkboxes above, so it is recorded here rather than left to be discovered:
+
+**Verified by execution**
+- Backend: `npm run verify:e2e` — 117 live checks against the dev deployment,
+  including every negative authorization case. `svelte-check` clean.
+- Capture/editor preservation: `scripts/verify-capture-regressions.ts`, offline.
+- Keyboard shortcuts: `npm run verify:shortcuts` — 36 checks.
+- React Native client: typecheck and lint clean, Expo Doctor 21/21, Android and
+  iOS Hermes exports pass. Exports prove bundling, not native rendering.
+- Swift client: a static contract check over 16 backend functions. Compilation,
+  simulator and device testing need Apple SDKs and are unverified on this host.
+
+**Not verified — needs a browser or a device**
+- Any rendered UI: layout, CSS, contrast as painted, focus rings, drag-and-drop
+  on a touchscreen.
+- The Android on-device journey and the entire iOS journey.
+- A production deployment of any kind.
+
+**Known and accepted, documented rather than hidden**
+- Account enumeration. Convex Auth v1 rethrows distinguishable errors from a
+  public action; three fixes were built and rejected, all recorded in
+  `src/convex/auth.ts`. Closing it means owning the provider.
+- Sign-in throttling is keyed on the account id, so unknown addresses are not
+  throttled. Also recorded at the setting that configures it.
+- List queries still scan an owner's rows before filtering and capping. Small
+  fixtures prove correctness, not scalability.
+- Capture drafts in the Swift client are view-memory only.
 
 ## 4. Feature specs
 
