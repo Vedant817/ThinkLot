@@ -448,7 +448,30 @@ export const get = query({
 				...(row.description ? { preview: row.description.slice(0, 240) } : {})
 			}))
 		).map((candidate) => ({
-			...toSummary(candidate.idea as Doc<'ideas'>),
+			/*
+			 * Projected explicitly, NOT run through `toSummary`.
+			 *
+			 * The candidate shape this function builds is `{_id, title, tags, preview}`.
+			 * `toSummary` reads `idea.description` for its preview, and a candidate has
+			 * no such field - so casting a candidate into a document and passing it
+			 * through silently dropped the preview the duplicate judgement was built
+			 * to send. The web detail page reads `c.preview` and got undefined.
+			 *
+			 * An explicit projection also means a future field added to `toSummary`
+			 * cannot accidentally start reading document fields these candidates do
+			 * not have.
+			 */
+			_id: candidate.idea._id,
+			seq: 0,
+			title: candidate.idea.title,
+			status: 'parked',
+			tags: candidate.idea.tags,
+			coreFields: 0,
+			favorite: false,
+			archived: false,
+			createdAt: 0,
+			updatedAt: 0,
+			preview: candidate.idea.preview,
 			lexical: candidate.lexical,
 			tagOverlap: candidate.tagOverlap,
 			reason: candidateReason(candidate)

@@ -925,6 +925,23 @@ Check "and this one was not" ($topFive.rankTruncated -eq $false)
 $pageOnly = (Call 'ideas:list' (@{ limit=5 } | ConvertTo-Json -Compress) $rankToken 'query').value
 Check "a non-ranking page reports no bound" ($pageOnly.rankTruncated -eq $false) "-> $($pageOnly.rankTruncated)"
 
+# A duplicate suggestion has to carry the OTHER idea's text, or the judgement is blind.
+# It used to be stripped: candidates carry `preview`, but were cast into a full document
+# and passed to `toSummary`, which reads `idea.description` - a field a candidate has none
+# of. The web detail page read `c.preview` and got undefined every time.
+$prevA = Call 'ideas:capture' (@{ title='Handover checklist'; description='Field crews lose notes between shifts, so the checklist is the only durable record.' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$prevB = Call 'ideas:capture' (@{ title='Handover checklists' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+
+$prevDetail = (Call 'ideas:get' (@{ ideaId=$prevB.value } | ConvertTo-Json -Compress) $tokenA).value
+$prevNeighbour = @($prevDetail.duplicates | Where-Object { $_.title -eq 'Handover checklist' }) | Select-Object -First 1
+Check "a duplicate suggestion carries the other idea's preview" ($prevNeighbour.preview -like '*Field crews lose notes*') "-> [$($prevNeighbour.preview)]"
+Check "and it says how alike the titles are" ($null -ne $prevNeighbour.lexical) "-> $($prevNeighbour.lexical)"
+
+# The reverse direction must not invent a preview for an idea that has none.
+$prevReverse = (Call 'ideas:get' (@{ ideaId=$prevA.value } | ConvertTo-Json -Compress) $tokenA).value
+$prevBare = @($prevReverse.duplicates | Where-Object { $_.title -eq 'Handover checklists' }) | Select-Object -First 1
+Check "an idea with no description reports no preview, not an empty claim" ($prevBare.preview -eq $null) "-> [$($prevBare.preview)]"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #
