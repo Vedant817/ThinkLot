@@ -27,6 +27,7 @@ export type ReviewReason =
 	| 'parked' // explicitly parked, never revisited
 	| 'strong' // scores well
 	| 'snoozed' // user asked to look back
+	| 'due_back' // a park whose date arrived and came back on its own
 	| 'untouched_inbox'; // never judged
 
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -90,6 +91,22 @@ export const queue = query({
 
 			if (idea.revisitAt !== undefined && idea.revisitAt <= now) {
 				reasons.push('snoozed');
+			}
+
+			/*
+			 * A park that has come back, named as such.
+			 *
+			 * `snoozed` says the date passed. What the user needs is that something
+			 * they parked has RETURNED - which is a different and more actionable
+			 * fact, and the only one that answers "why am I seeing this again?".
+			 *
+			 * Separate from `snoozed` because the two are opposite moments: `snoozed`
+			 * is "you asked to see this again and its date arrived", `due_back` is
+			 * "you deliberately put this down and it has come back". Collapsing them
+			 * made the queue unable to distinguish a return from a request.
+			 */
+			if (idea.status === 'parked' && idea.revisitAt !== undefined && idea.revisitAt <= now) {
+				reasons.push('due_back');
 			}
 
 			const idleFor = now - idea.updatedAt;

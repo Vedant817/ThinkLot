@@ -25,6 +25,7 @@ const reasons = {
   parked: "Waiting in parked",
   strong: "Strong priority score",
   snoozed: "Revisit date reached",
+  due_back: "Came back — you parked this and its date arrived",
   untouched_inbox: "Still waiting for a decision",
 };
 

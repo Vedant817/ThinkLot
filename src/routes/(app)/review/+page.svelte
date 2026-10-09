@@ -8,7 +8,7 @@
 	import { page } from '$app/state';
 	import { syncFilters } from '$lib/filters.svelte';
 
-	type Reason = 'stale' | 'parked' | 'strong' | 'snoozed' | 'untouched_inbox';
+	type Reason = 'stale' | 'parked' | 'strong' | 'snoozed' | 'due_back' | 'untouched_inbox';
 
 	/**
 	 * Human wording for each rule, because a queue that cannot explain itself is
@@ -24,6 +24,10 @@
 		parked: { label: 'parked', help: 'Parked and never revisited' },
 		strong: { label: 'strong', help: 'Scores 24 or higher' },
 		snoozed: { label: 'due back', help: 'You asked to look at this again' },
+		due_back: {
+			label: 'came back',
+			help: 'You parked this, and its date arrived. It is here now rather than waiting for you to remember it.'
+		},
 		untouched_inbox: { label: 'undecided', help: 'Never scored, still sitting in the inbox' }
 	};
 
