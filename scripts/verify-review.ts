@@ -138,6 +138,20 @@ const inDays = (days: number) => ({ outcome: 'park' as const, reason: '', inDays
 		/choose how long/i,
 		'NaN must not slip through as a date'
 	);
+	// A fractional day is REFUSED, not rounded. "1.4 days" used to become 1 day, so
+	// the app agreed to one thing and delivered another without saying so.
+	assert.match(
+		validateDecision({ outcome: 'park', reason: '', inDays: 1.4 }) ?? '',
+		/whole number of days/i,
+		'a fractional day must not be silently rounded'
+	);
+	assert.match(
+		validateDecision({ outcome: 'try', reason: '', inDays: 7.5 }) ?? '',
+		/whole number of days/i,
+		'however it arrives'
+	);
+	assert.equal(validateDecision({ outcome: 'park', reason: '', inDays: 1 }), null, 'a whole day is fine');
+	assert.equal(validateDecision({ outcome: 'park', reason: '', inDays: 90 }), null);
 	assert.match(
 		validateDecision({ outcome: 'park', reason: '', inDays: 3650 }) ?? '',
 		/A year is longer/,

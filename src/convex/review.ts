@@ -71,13 +71,30 @@ export const queue = query({
 			const reasons: ReviewReason[] = [];
 			const score = priority(idea);
 
+			/*
+			 * A park with a DUE date is suppressed, not deferred.
+			 *
+			 * Parking used to be a no-op for the queue: the idea kept its `parked`
+			 * reason and appeared again immediately, because `revisitAt` was only read
+			 * as a reason and never as a gate. So "park for 7 days" produced the same
+			 * idea in the queue twice, seven days after the user was told they would
+			 * not see it - which teaches people the timer does nothing, which is worse
+			 * than not having a timer.
+			 *
+			 * Suppressed, not deleted: the row is skipped for THIS queue so it returns
+			 * when its date arrives. `reasons` still notes it, so when it does come
+			 * back the queue can say why.
+			 */
+			const parked = idea.revisitAt !== undefined && idea.revisitAt > now;
+			if (parked) continue;
+
 			if (idea.revisitAt !== undefined && idea.revisitAt <= now) {
 				reasons.push('snoozed');
 			}
 
 			const idleFor = now - idea.updatedAt;
 			if (idleFor >= STALE_MS) reasons.push('stale');
-			if (idea.status === 'parked') reasons.push('parked');
+			if (idea.status === 'parked' && !parked) reasons.push('parked');
 			if (score !== null && score >= STRONG_SCORE) reasons.push('strong');
 			if (idea.status === 'inbox' && score === null) reasons.push('untouched_inbox');
 

@@ -109,6 +109,17 @@ export function validateDecision(decision: Decision): string | null {
 		if (!Number.isFinite(decision.inDays) || decision.inDays < 1) {
 			return 'Choose how long until you look at it again.';
 		}
+		/*
+		 * A whole number of days, not a decimal, and it matches `review:snooze`.
+		 *
+		 * The snooze path already refused non-integers for a specific reason: the value
+		 * is indexed, and junk in it poisons index scans. `decide` was the inconsistent
+		 * one - it rounded, so `1.4` silently became 1 day and the app agreed to
+		 * something it did not do. Anyone who wants "a couple of days" can say `2`.
+		 */
+		if (!Number.isInteger(decision.inDays)) {
+			return 'A whole number of days, not a fraction.';
+		}
 		if (decision.inDays > 365) {
 			return 'A year is longer than anyone genuinely plans. Pick something shorter.';
 		}

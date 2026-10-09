@@ -839,3 +839,69 @@ if ($restoredActive) {
   Check "a restored let-go stays archived" $false "nothing was restored to inspect"
   Check "a restored idea keeps its three core fields" $false "nothing was restored to inspect"
 }
+
+# A park with a future date must NOT come back in the queue immediately. It did, because
+# revisitAt was read as a reason and never as a gate - "park 7d" produced the same idea
+# again, seven days after telling the user it would not.
+$parkFuture = Call 'review:decide' (@{ ideaId=$rvSkip.value; outcome='park'; inDays=30 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a 30-day park is accepted" ($parkFuture.status -eq 'success') "-> $($parkFuture.errorMessage)"
+$queueAfterPark = (Call 'review:queue' '{}' $rvToken 'query').value
+$parkedRow = @($queueAfterPark.items | Where-Object { $_."_id" -eq $rvSkip.value })
+Check "a parked idea is suppressed from the queue" (@($parkedRow).Count -eq 0) "still in the queue"
+$parkedRow2 = (Call 'ideas:get' (@{ ideaId=$rvSkip.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "but the idea itself is untouched, only hidden" ($parkedRow2.status -eq 'parked' -and -not $parkedRow2.archived) "status=$($parkedRow2.status)"
+
+# A park that is DUE still comes back, because suppressing it forever would teach people
+# that parking is deletion.
+$parkDue = Call 'review:decide' (@{ ideaId=$rvSkip.value; outcome='park'; inDays=1 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a 1-day park is accepted" ($parkDue.status -eq 'success') "-> $($parkDue.errorMessage)"
+
+# A fractional day is refused rather than rounded - the rule review:snooze already used.
+$parkFraction = Call 'review:decide' (@{ ideaId=$rvSkip.value; outcome='park'; inDays=1.4 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a fractional park is REFUSED, not rounded" ($parkFraction.status -eq 'error') "status=$($parkFraction.status)"
+$parkWhy = ($parkFraction.errorMessage -split '\(')[0]
+Check "and it says why" ($parkFraction.errorMessage -match 'whole number') "-> $parkWhy"
+
+Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
+# MUST BE LAST, and MUST use its own throwaway account.
+#
+# The limiter is keyed on the account id, and this deliberately LOCKS that
+# account for up to an hour (5 failures/hour, refilling one every 12 minutes).
+# Sharing $emailA here would lock out every later check in this run - including
+# the token used for all the owner-scope tests - so it gets a private account
+# that is never used again.
+$rlEmail = "qa-ratelimit-$stamp@example.com"
+$rlSignUp = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "the throttle test account can be created" (-not (Refused $rlSignUp)) "-> $($rlSignUp.errorMessage)"
+
+$wrongMessages = @()
+for ($i = 1; $i -le 5; $i++) {
+    $r = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+    $wrongMessages += $r.errorMessage
+}
+Check "five wrong passwords are each rejected as a bad secret" (@($wrongMessages | Where-Object { $_ -match 'InvalidSecret' }).Count -eq 5) "-> saw: $((($wrongMessages | ForEach-Object { ($_ -split ' at ')[0] }) | Select-Object -Unique) -join ' | ')"
+
+$locked = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "the sixth attempt is throttled, not merely rejected" ($locked.errorMessage -match 'TooManyFailedAttempts') "-> $(($locked.errorMessage -split ' at ')[0])"
+
+$lockedEvenCorrect = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
+Check "even the CORRECT password is refused while throttled" ($lockedEvenCorrect.errorMessage -match 'TooManyFailedAttempts') "-> $(($lockedEvenCorrect.errorMessage -split ' at ')[0])"
+Write-Host "  NOTE  $rlEmail is now throttled for up to an hour by design" -ForegroundColor DarkGray
+
+Write-Host "`n-------------------------------------------"
+if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
+else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
+
+# Every account this run leaves behind. The first version printed only the two
+# primary ones, which understated the leak by half - a cleanup strategy built from
+# that list would have orphaned the clustering and throttle fixtures, and they are
+# exactly the ones that keep growing the database.
+Write-Host "`nQA accounts created by this run (none are cleaned up):" -ForegroundColor DarkGray
+foreach ($addr in @($emailA, $emailB, $clEmail, $rlEmail)) {
+    if ($addr) { Write-Host "  $addr" -ForegroundColor DarkGray }
+}
+
+# EXIT CODE. This was missing entirely, so the script printed "FAILED: 1" in red and
+# still returned 0 - meaning any CI wired to this file would have gone green on a
+# broken backend. A verification suite that cannot fail a build is decoration.
+exit $(if ($failures.Count -eq 0) { 0 } else { 1 })
