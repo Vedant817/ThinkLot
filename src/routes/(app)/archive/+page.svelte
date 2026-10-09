@@ -68,8 +68,23 @@
 	});
 
 	$effect(() => {
+		/*
+		 * `archivedOnly`, not `includeArchived`.
+		 *
+		 * This used to ask for everything and filter in the browser. Correct, but it
+		 * read every idea the user has ever had in order to show the archived subset -
+		 * and with a 250-row cap, "everything" is a lie about a large lot: an archived
+		 * idea older than the cap is not merely missing from the page, the page has
+		 * no idea it exists.
+		 *
+		 * `archivedOnly` narrows in the index, so the read is the page itself and
+		 * `truncated` means what it says. It is also what the mobile client already
+		 * sends, so both clients now make the same request - the QA audit that found
+		 * this was wrong that the two disagreed in RESULT, and right that they
+		 * disagreed in cost.
+		 */
 		const next = watchQuery<Lot>(convex.client!, api.ideas.list, {
-			includeArchived: true,
+			archivedOnly: true,
 			search: searchQuery
 		});
 		handle = next;
@@ -82,7 +97,8 @@
 	const truncated = $derived(handle?.current?.truncated ?? false);
 	const total = $derived(handle?.current?.total ?? 0);
 
-	const archived = $derived(all.filter((idea) => idea.archived));
+	// The server already narrowed by index, so this is a rename rather than a filter.
+	const archived = $derived(all);
 
 	/** True when a filter is narrowing the view, so the empty state can say so. */
 	const filtering = $derived(search.trim().length > 0);
