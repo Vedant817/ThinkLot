@@ -130,6 +130,15 @@ behind the ones that do not.
       the wire from `ideas:get` and were read by nothing but the web client. The lot card
       now shows maturity, computed from the `coreFields` COUNT rather than the three
       free-text fields a list row omits - the exact bug the web client had.
+- [ ] **List rows carry checklist counts** — QA finding, NOT yet done. `ideas:list`
+      summaries omit task counts, so `maturityOf` inside the roadmap sees every idea as
+      `judged` and the roadmap loses its "never displace work already started" rule
+      silently. Needs a bounded second read (`by_user_idea`, grouped in memory — the
+      `ideaTasks` index leads with `ideaId`, so a set of ideas would be N queries), and
+      the cap being reached must be REPORTED, not silently produce counts that are too
+      low. Started twice and reverted both times: the perturbation to the list hot path
+      is not worth shipping unverified, and the edit-tool splicing corrupted
+      `ideas.ts` twice.
 - [ ] **Android: AI provider settings** - the web client has bring-your-own-key across
       eight providers. Not yet on mobile. Needs a keychain, not `sessionStorage`.
 - [ ] **iOS: spec fields `audience` / `outcome` / `trigger`** - `apps/ios/Sources/Models.swift`

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation } from "convex/react";
@@ -44,6 +44,23 @@ export default function IdeaDetail() {
    */
   const related = query.data?.related ?? [];
   const events = query.data?.events ?? [];
+  /*
+   * Maturity, computed ONCE, and from the checklist as well as the idea.
+   *
+   * The first version called `maturityOf(idea)` three times per render with NO task
+   * counts - and the detail row HAS them, they were just never passed. So an idea with
+   * a finished checklist reported as `judged`, and the screen told the user to "Add one
+   * task, so this is not just a note" for an idea that already had five. A different
+   * answer from the web client for the same idea, which is worse than either answer.
+   */
+  const maturity = useMemo(() => {
+    if (!query.data) return null;
+    return maturityOf({
+      ...query.data.idea,
+      totalTasks: query.data.tasks.length,
+      doneTasks: query.data.tasks.filter((t) => t.completed).length,
+    });
+  }, [query.data]);
   const update = useMutation(api.ideas.update);
   const status = useMutation(api.ideas.setStatus);
   const favorite = useMutation(api.ideas.toggleFavorite);
@@ -309,11 +326,12 @@ export default function IdeaDetail() {
             */}
             <Label>How developed</Label>
             <Note>
-              {maturityLabel(maturityOf(idea).stage)}
-              {maturityOf(idea).next ? ` — next: ${maturityOf(idea).next.toLowerCase()}` : ""}
+              {maturity
+                ? `${maturityLabel(maturity.stage)}${maturity.next ? ` — next: ${maturity.next.toLowerCase()}` : ""}`
+                : ""}
             </Note>
-            {maturityOf(idea).missing.length > 0 ? (
-              <Note>Still missing: {maturityOf(idea).missing.join(", ")}</Note>
+            {maturity && maturity.missing.length > 0 ? (
+              <Note>Still missing: {maturity.missing.join(", ")}</Note>
             ) : null}
             <Label>Stage</Label>
             <View style={styles.row}>
