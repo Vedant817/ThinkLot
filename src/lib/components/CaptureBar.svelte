@@ -79,7 +79,14 @@
 
 	function trackInput() {
 		const now = performance.now();
-		injectedBlock = looksInjected(Math.max(0, draft.length - previousLength));
+		// LATCHED, not recomputed.
+		//
+		// Recomputing on every keystroke meant a single injection was forgotten the
+		// moment the user typed one more character - so "inject 24 chars, then type
+		// an exclamation mark" lost the transcript entirely. The evidence is about the
+		// ARRIVAL of the text, which is a fact about this capture and does not become
+		// false because the user kept writing.
+		if (looksInjected(Math.max(0, draft.length - previousLength))) injectedBlock = true;
 		previousLength = draft.length;
 		if (lastInputAt > 0) {
 			const gap = now - lastInputAt;
@@ -89,18 +96,24 @@
 		}
 		lastInputAt = now;
 
-		// Truncate, but SAY SO. The original `draft = draft.slice(0, DRAFT_LIMIT)`
-		// rewrote the textarea's own value: the caret pinned at the cap, typing
-		// appeared to stop working, and a pasted 10,000-character wall lost 6,000
-		// characters with nothing on screen to explain why. That directly
-		// contradicts this module's own promise that nothing is ever thrown away.
-		if (draft.length > DRAFT_LIMIT) {
-			const dropped = draft.length - DRAFT_LIMIT;
-			draft = draft.slice(0, DRAFT_LIMIT);
-			overflow = `That was ${dropped.toLocaleString()} characters over the limit. The first ${DRAFT_LIMIT.toLocaleString()} were kept - split a very long capture across several ideas rather than losing the tail.`;
-		} else if (overflow) {
-			overflow = null;
-		}
+		// Long captures are KEPT WHOLE, and split into title + notes at submit.
+		//
+		// This used to slice the draft at DRAFT_LIMIT inside the input handler, which
+		// silently destroyed text: a pasted 20,000-character wall lost 16,000
+		// characters, and the "warning" that replaced it was not a recovery path.
+		// The server accepts a 300-character title and a 20,000-character body, and
+		// `parseCapture` already splits a long first line into exactly that - so the
+		// real answer is to let it, and to warn only about the part of a capture that
+		// genuinely is a note rather than a title.
+		// `DRAFT_LIMIT` is a SOFT limit - "this is a note, not a title" - and the real
+		// hard limit is the server's 20,000-character body. So the message is about
+		// what will happen, not about the field refusing to accept text.
+		const note =
+			draft.length > DRAFT_LIMIT
+				? `That's ${(draft.length - DRAFT_LIMIT).toLocaleString()} characters of notes. ` +
+					`It'll be parked with the first line as the title and the rest as the body - nothing is lost.`
+				: null;
+		overflow = note;
 
 		pending = draft.trim() || null;
 		storeDraft();
@@ -136,6 +149,12 @@
 
 		// A dictated thought usually also says WHY it occurred, and that is the part
 		// impossible to reconstruct weeks later. Accept it inline rather than asking.
+		//
+		// The MUTATION gets `trigger`. It was extracted here for a while and then
+		// dropped on the floor, so the whole context feature existed only on the
+		// phones - a web user dictating "a waitlist. Trigger, walking with Priya"
+		// lost the Priya and kept the waitlist, and the two clients produced
+		// different records for identical input.
 		const { text, trigger } = extractTrigger(raw);
 		const parsed = parseCapture(text, source);
 		if (!parsed) return;
@@ -155,7 +174,8 @@
 				title: parsed.title,
 				description: parsed.description,
 				source: parsed.source,
-				transcript: parsed.transcript
+				transcript: parsed.transcript,
+				...(trigger ? { trigger } : {})
 			});
 
 			draft = '';

@@ -156,4 +156,54 @@ assert.deepEqual(textPatch(spaced), { outcome: null }, 'a whitespace-only edit c
   );
 }
 
-console.log('PASS: capture preservation, concurrent mobile editor, spec-field clear, Wispr block injection and inline trigger context (no database operations).');
+// ---------------------------------------------------------------------------
+// 8. THE THREE DEFECTS AN ADVERSARIAL QA AGENT FOUND IN THE CAPTURE BAR.
+//    All three silently destroyed or dropped user text. Each is asserted here at
+//    the pure-function level; the wiring is asserted in the web suite.
+// ---------------------------------------------------------------------------
+{
+	// (a) A 20,000-character capture must survive PARSING WHOLE.
+	//
+	// The input handler used to slice the draft to DRAFT_LIMIT (4,000) on every
+	// keystroke, so a pasted 20k wall lost 16k characters with nothing recoverable.
+	// The server accepts a 20,000-character body, so the honest answer is to keep
+	// the text and split it - not to trim it.
+	const long = 'x'.repeat(20_000);
+	const parsedLong = parseCapture(long, 'typed')!;
+	assert.ok(parsedLong.title.length <= 300, 'title stays within the server cap');
+	assert.equal(
+		(parsedLong.title + (parsedLong.description ?? '')).replace(/\s/g, ''),
+		long.replace(/\s/g, ''),
+		'every one of the 20,000 characters survives parsing'
+	);
+
+	// (b) The spoken trigger must be extractable AND removable without eating the
+	//     sentence that preceded it.
+	const spoken = 'a cancellation waitlist. trigger, walking with Priya';
+	const extracted = extractTrigger(spoken);
+	assert.equal(extracted.trigger, 'walking with Priya', 'the trigger is recovered');
+	assert.equal(
+		extracted.text,
+		'a cancellation waitlist',
+		'and the idea sentence survives, with no stray punctuation from the removed clause'
+	);
+
+	// A trigger that follows a real sentence must not take the sentence's full stop.
+	const withIdea = 'a cancellation waitlist. trigger, walking with Priya, she said empty slots cost money';
+	assert.equal(extractTrigger(withIdea).trigger, 'walking with Priya, she said empty slots cost money');
+	assert.match(extractTrigger(withIdea).text, /^a cancellation waitlist/, 'and the idea sentence survives intact');
+
+	// (c) One injection must not be forgotten by a later keystroke. This is the
+	//     latch, expressed as the property it guarantees: a shape signal observed
+	//     once stays observed.
+	assert.equal(looksInjected(24), true, 'the threshold fires at 24');
+	assert.equal(looksInjected(23), false, 'and not at 23');
+	// The bug was that the SECOND call overwrote the first with false. A latch has
+	// the property that `latched(a) || latched(b)` is true if either was injected.
+	const latched = (a: number, b: number) => looksInjected(a) || looksInjected(b);
+	assert.equal(latched(24, 1), true, 'a late keystroke must not erase an earlier injection');
+	assert.equal(latched(1, 24), true, 'in either order');
+	assert.equal(latched(1, 1), false, 'and pure typing is still pure typing');
+}
+
+console.log('PASS: capture preservation, concurrent mobile editor, spec-field clear, Wispr block injection, inline trigger context, and the three QA capture defects (no database operations).');

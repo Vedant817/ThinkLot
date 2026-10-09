@@ -70,8 +70,14 @@ behind the ones that do not.
       and says what it is missing, instead of padding `later`. Work already started is
       never displaced by a higher score, and overflow is reported rather than hidden.
       See `docs/DECISIONS.md` for the four architecture decisions.
-- [ ] **Idea export** — export ideas as Markdown. No Notion API key needed for a
-      Markdown export that pastes into Notion; a true API push needs a token.
+- [x] **Idea export** — `src/lib/portability.ts`. Markdown that pastes into Notion,
+      CSV, and a versioned lossless JSON backup. Re-import is duplicate-checked and
+      *reported*, never auto-resolved. Round-trip verified offline and live (e2e
+      183 → 215). Also the Notion entry point for the sharing feature below.
+- [x] **Android: AI provider settings** — `apps/mobile/…/settings/ai.tsx` +
+      `lib/ai-credentials.ts`. BYOK across all eight providers on a real keychain
+      (`expo-secure-store`, already a dependency), session-or-persistent exactly like
+      the web client, and the same `callModel` adapter — no second implementation.
 - [ ] **Public sharing** — an explicit, revocable, per-idea share link. Needs a
       decision: read-only public pages leak the account's content, so it must be
       opt-in per idea and revocable.
