@@ -894,6 +894,37 @@ Check "a fractional park is REFUSED, not rounded" ($parkFraction.status -eq 'err
 $parkWhy = ($parkFraction.errorMessage -split '\(')[0]
 Check "and it says why" ($parkFraction.errorMessage -match 'whole number') "-> $parkWhy"
 
+# A "top five" that is really "top five of the six newest" is a quiet lie. The best idea
+# in a large lot can be the seventh newest and never appear - and the screen said "top
+# five" either way. So a ranking ranks over a POOL, not over the page it returns.
+$rankEmail = "qa-rank-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$rankToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$rankEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+# The BEST idea is the OLDEST: captured first, then buried under 29 newer ones. Before the
+# fix, `sortPriority` sorted the same `cap + 1` rows it returned - six, of the six newest -
+# and this idea was outside them.
+$rankBest = Call 'ideas:capture' (@{ title='rank best, and oldest' } | ConvertTo-Json -Compress) $rankToken 'mutation'
+$null = Call 'ideas:update' (@{ ideaId=$rankBest.value; impact=10; effort=1; confidence=10 } | ConvertTo-Json -Compress) $rankToken 'mutation'
+for ($i = 1; $i -le 29; $i++) {
+    $filler = Call 'ideas:capture' (@{ title="rank filler $i" } | ConvertTo-Json -Compress) $rankToken 'mutation'
+    $null = Call 'ideas:update' (@{ ideaId=$filler.value; impact=1; effort=9; confidence=1 } | ConvertTo-Json -Compress) $rankToken 'mutation'
+}
+
+$topFive = (Call 'ideas:list' (@{ sortPriority=$true; limit=5 } | ConvertTo-Json -Compress) $rankToken 'query').value
+$rankedIds = @($topFive.ideas | ForEach-Object { $_._id })
+Check "a ranking reaches past the newest rows" ($rankedIds -contains $rankBest.value) "top 5: $((@($topFive.ideas) | ForEach-Object { $_.title }) -join ', ')"
+Check "and it leads, because it scores highest" ($topFive.ideas[0]._id -eq $rankBest.value) "first=$($topFive.ideas[0].title)"
+Check "a ranking is still five rows" (@($topFive.ideas).Count -eq 5) "count=$(@($topFive.ideas).Count)"
+
+# The flag that tells the caller its ranking was itself bounded. False here because the
+# pool was not exhausted at 30 ideas - but it must EXIST, or a future caller cannot tell.
+Check "a ranking reports whether it was bounded" ($null -ne $topFive.rankTruncated) "-> $($topFive.rankTruncated)"
+Check "and this one was not" ($topFive.rankTruncated -eq $false)
+
+# A page request that is NOT a ranking still says so, so the two paths cannot be confused.
+$pageOnly = (Call 'ideas:list' (@{ limit=5 } | ConvertTo-Json -Compress) $rankToken 'query').value
+Check "a non-ranking page reports no bound" ($pageOnly.rankTruncated -eq $false) "-> $($pageOnly.rankTruncated)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

@@ -224,7 +224,17 @@ export const list = query({
 	handler: async (ctx, args) => {
 		const userId = await requireUser(ctx);
 
-		const cap = Math.min(Math.max(args.limit ?? LIST_LIMIT, 1), LIST_LIMIT);
+		/**
+ * How many rows a priority ranking ranks over.
+ *
+ * A "top five" that is really "top five of the six newest" is a quiet lie: the best idea
+ * in a large lot can be the seventh newest and never appear. So a ranking reads a real
+ * pool - bounded, because the fast path's whole point is a bounded read, but much larger
+ * than any page anyone asks to display.
+ */
+const RANK_POOL = 500;
+
+const cap = Math.min(Math.max(args.limit ?? LIST_LIMIT, 1), LIST_LIMIT);
 		const includeArchived = args.includeArchived ?? false;
 		const needle = args.search?.trim().toLowerCase();
 
@@ -275,23 +285,36 @@ export const list = query({
 		};
 
 		if (!needsScan && !args.status) {
-			// One extra row, so `truncated` is exact without counting anything.
-			const page: Doc<'ideas'>[] = await base(true).take(cap + 1);
+			/*
+			 * A ranking is ranked over a POOL, not over the page it returns.
+			 *
+			 * `sortPriority` used to sort the same `cap + 1` rows it returned, so the
+			 * dashboard's `limit: 5` ranked SIX ideas and displayed the best of those
+			 * six. The genuinely best idea in a lot of two hundred could be the seventh
+			 * newest and never appear - and the screen said "top five" either way.
+			 *
+			 * So when a ranking is asked for, the read is over a named pool. Bounded,
+			 * so the read limit is still the point of the fast path; larger than a page
+			 * so "top N" means something. When the pool itself is truncated the caller
+			 * is TOLD, because a bounded ranking presented as a complete one is the
+			 * quiet kind of wrong that nobody reports.
+			 */
+			const pool = args.sortPriority ? Math.max(cap + 1, RANK_POOL) : cap + 1;
+			const page: Doc<'ideas'>[] = await base(true).take(pool);
 
 			let out = page;
 			if (args.sortPriority) {
-				// A priority ranking cannot come from a `seq` index, so this path does
-				// still sort - but over at most `cap + 1` rows rather than over every
-				// idea the user owns.
 				out = [...page].sort((a, b) => priorityOf(b) - priorityOf(a) || b.seq - a.seq);
 			}
-			// `total` is the page size when the cap was reached, because the real total
-			// is unknowable without the scan this path exists to avoid. It is only read
-			// to decide whether to say "showing N of M", and when it is wrong `truncated`
-			// is already true, so what the user sees is an honest "at least this many".
+
+			const shown = out.slice(0, cap);
 			return {
-				ideas: out.slice(0, cap).map(toSummary),
+				ideas: shown.map(toSummary),
 				truncated: page.length > cap,
+				// True when the ranking was itself bounded - not the same fact as
+				// `truncated`, and the caller should say so rather than implying the
+				// ranking covered the whole lot.
+				rankTruncated: Boolean(args.sortPriority) && page.length >= pool,
 				total: page.length > cap ? cap + 1 : page.length
 			};
 		}
