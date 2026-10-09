@@ -22,12 +22,13 @@
     "verify:roadmap": "vite-node scripts/verify-roadmap.ts",
     "verify:ai": "vite-node scripts/verify-ai.ts",
     "verify:portability": "vite-node scripts/verify-portability.ts",
+    "verify:review": "vite-node scripts/verify-review.ts",
     "verify:parity": "vite-node scripts/verify-mobile-parity.ts",
     "verify:web": "vite-node scripts/verify-web.ts",
     "verify:authproxy": "vite-node scripts/verify-authproxy.ts",
     "verify:concurrency": "vite-node scripts/verify-concurrency.ts",
     "verify:contracts": "node apps/ios/scripts/verify-contracts.mjs",
-    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:roadmap && npm run verify:ai && npm run verify:portability && npm run verify:shortcuts && npm run verify:contracts"
+    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:roadmap && npm run verify:ai && npm run verify:portability && npm run verify:review && npm run verify:shortcuts && npm run verify:contracts"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.2",

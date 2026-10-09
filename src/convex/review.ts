@@ -1,7 +1,13 @@
 import { getAuthUserId } from '@convex-dev/auth/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import { v } from 'convex/values';
-import { normaliseBody, normaliseRevisitAt, nowMs } from '../lib/convex/validation';
+import { normaliseBody, normaliseRevisitAt, nowMs, ValidationError } from '../lib/convex/validation';
+import {
+	DEFAULT_REVISIT_DAYS,
+	effectOf,
+	validateDecision,
+	type Decision
+} from '../lib/review';
 
 /**
  * The weekly review queue.
@@ -172,6 +178,90 @@ export const snooze = mutation({
  * not reminding them. The event log it writes is what the in-app reminder will
  * read, so wiring a real channel later changes only this function.
  */
+/**
+ * Record one of the four review decisions.
+ *
+ * The rules live in `src/lib/review.ts`, not here, so the web and mobile clients and
+ * the server cannot disagree about what "park" does. All this does is apply the effect
+ * and write the event.
+ *
+ * The one rule worth restating at the boundary: `let go` ARCHIVES and never deletes.
+ * The idea stays, with its reason. That is the whole difference between an archive you
+ * can read a year later and a graveyard.
+ */
+export const decide = mutation({
+	args: {
+		ideaId: v.id('ideas'),
+		outcome: v.union(
+			v.literal('try'),
+			v.literal('park'),
+			v.literal('letGo'),
+			v.literal('skip')
+		),
+		reason: v.optional(v.string()),
+		inDays: v.optional(v.number())
+	},
+	handler: async (ctx, args) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) throw new ValidationError('You must be signed in.');
+
+		const idea = await ctx.db.get(args.ideaId);
+		if (!idea || idea.userId !== userId) {
+			// Deliberately the same refusal whether the idea does not exist or belongs to
+			// someone else: a distinct message would confirm that a given id exists.
+			throw new ValidationError('That idea is not yours to decide.');
+		}
+
+		const at = nowMs();
+		const decision: Decision = {
+			outcome: args.outcome,
+			reason: args.reason ?? '',
+			inDays: args.inDays ?? DEFAULT_REVISIT_DAYS
+		};
+
+		// Rejected here, not in the client, so a bad decision cannot be recorded however
+		// it arrives. The sentence is the same one the UI shows.
+		const problem = validateDecision(decision);
+		if (problem) throw new ValidationError(problem);
+
+		const effect = effectOf(decision, at);
+		// `narrative` is for the event, not the document - it has no column, and
+		// destructuring it out is how the pure function stays able to carry it.
+		const { clearLetGo, narrative, ...fields } = effect;
+
+		// A `Record<string, unknown>` patch, for the same reason `ideas:update` uses one.
+		// Anything the pure function reported as `null` means CLEAR THIS FIELD, which in
+		// Convex is `undefined` - the validator accepts an absent optional field and
+		// rejects a literal null. Writing null directly produced:
+		//   Value does not match validator. Path: .revisitAt Value: null
+		// which surfaced as a Server Error from the `letGo` path only, so the obvious
+		// suspect was the reason handling rather than the date.
+		const patch: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(fields)) {
+			patch[key] = value === null ? undefined : value;
+		}
+		if (clearLetGo) {
+			patch.letGoAt = undefined;
+			patch.letGoReason = undefined;
+		}
+		patch.updatedAt = at;
+
+		await ctx.db.patch(args.ideaId, patch as never);
+
+		await ctx.db.insert('ideaEvents', {
+			ideaId: args.ideaId,
+			userId,
+			// The kind is the DECISION, not "archived": a history read as a series of
+			// decisions is what lets someone see how they actually spend attention.
+			kind: args.outcome === 'letGo' ? 'letGo' : 'reviewed',
+			detail: narrative,
+			createdAt: at
+		});
+
+		return { ok: true, at, narrative };
+	}
+});
+
 export const remindDueSnoozes = internalMutation({
 	args: {},
 	handler: async (ctx) => {

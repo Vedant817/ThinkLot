@@ -684,6 +684,93 @@ Check "an empty import is accepted and does nothing" ($pxEmpty.status -eq 'succe
 $pxUnauthImport = Call 'portability:importMany' (@{ entries=@(@{ title='should never exist' }) } | ConvertTo-Json -Depth 6 -Compress) $null 'mutation'
 Check "an import with no session is refused" ($pxUnauthImport.status -eq 'error') "status=$($pxUnauthImport.status)"
 
+Write-Host "`n== 11n. The four review decisions (not a third nickname for archive) ==" -ForegroundColor Cyan
+# Own account: "parked for N days" depends on the whole lot, and reusing the main QA
+# account would make every assertion below depend on what earlier sections left behind.
+$rvEmail = "qa-review-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$rvToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$rvEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
+
+# TRY: commits, and does not bury the date it comes back.
+$rvTry = Call 'ideas:capture' (@{ title='Try this week' } | ConvertTo-Json -Compress) $rvToken 'mutation'
+$tryDecided = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='try'; inDays=7 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "'try' is accepted" ($tryDecided.status -eq 'success') "-> $($tryDecided.errorMessage)"
+$tryRow = (Call 'ideas:get' (@{ ideaId=$rvTry.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "'try' moves the idea to ready" ($tryRow.status -eq 'ready') "status=$($tryRow.status)"
+Check "'try' sets a revisit date" ($null -ne $tryRow.revisitAt) "revisitAt=$($tryRow.revisitAt)"
+Check "'try' does NOT archive" (-not $tryRow.archived) "archived=$($tryRow.archived)"
+
+# PARK: a deliberate deferral with a date, and the singular/plural wording is right.
+$rvPark = Call 'ideas:capture' (@{ title='Park it for now' } | ConvertTo-Json -Compress) $rvToken 'mutation'
+$parkDecided = Call 'review:decide' (@{ ideaId=$rvPark.value; outcome='park'; inDays=30 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+$parkRow = (Call 'ideas:get' (@{ ideaId=$rvPark.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "'park' moves the idea to parked" ($parkRow.status -eq 'parked') "status=$($parkRow.status)"
+Check "'park' does not archive" (-not $parkRow.archived) "archived=$($parkRow.archived)"
+Check "'park' is dated 30 days out" (($parkRow.revisitAt - $nowMs) -gt (29 * 86400000)) "revisitAt=$($parkRow.revisitAt)"
+$parkSolo = Call 'ideas:capture' (@{ title='Park for one day' } | ConvertTo-Json -Compress) $rvToken 'mutation'
+$soloEvent = (Call 'review:decide' (@{ ideaId=$parkSolo.value; outcome='park'; inDays=1 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation')
+Check "one day reads as '1 day', not '1 days'" ($soloEvent.value.narrative -match 'parked for 1 day$') "narrative=$($soloEvent.value.narrative)"
+
+# LET GO: archives, KEEPS, and requires the reason. This is the whole point of the
+# feature - archive used to mean finished, maybe-later and decided-against alike.
+$rvGo = Call 'ideas:capture' (@{ title='Decided against after all' } | ConvertTo-Json -Compress) $rvToken 'mutation'
+$goNoReason = Call 'review:decide' (@{ ideaId=$rvGo.value; outcome='letGo' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "'let go' without a reason is REFUSED" ($goNoReason.status -eq 'error') "status=$($goNoReason.status)"
+$goBlank = Call 'review:decide' (@{ ideaId=$rvGo.value; outcome='letGo'; reason='   ' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "'let go' with only whitespace is REFUSED" ($goBlank.status -eq 'error') "status=$($goBlank.status)"
+$goDecided = Call 'review:decide' (@{ ideaId=$rvGo.value; outcome='letGo'; reason='Same thing as the 2024 attempt, which shipped' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "'let go' with a reason is accepted" ($goDecided.status -eq 'success') "-> $($goDecided.errorMessage)"
+$goRow = (Call 'ideas:get' (@{ ideaId=$rvGo.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "'let go' archives the idea" $goRow.archived "archived=$($goRow.archived)"
+Check "'let go' records the reason verbatim" ($goRow.letGoReason -eq 'Same thing as the 2024 attempt, which shipped') "reason=$($goRow.letGoReason)"
+Check "'let go' dates the decision" ($null -ne $goRow.letGoAt) "letGoAt=$($goRow.letGoAt)"
+Check "'let go' KEEPS the idea - never deletes" ($null -ne $goRow._id) "the idea is still there"
+# The idea must leave the working list but stay reachable in the archive.
+$goInList = ((Call 'ideas:list' (@{ limit=50 } | ConvertTo-Json -Compress) $rvToken 'query').value.ideas | Where-Object { $_."_id" -eq $rvGo.value })
+Check "'let go' removes it from the working list" (@($goInList).Count -eq 0) "still listed"
+$goInArchive = ((Call 'ideas:list' (@{ includeArchived=$true; limit=50 } | ConvertTo-Json -Compress) $rvToken 'query').value.ideas | Where-Object { $_."_id" -eq $rvGo.value })
+Check "'let go' keeps it in the archive" (@($goInArchive).Count -eq 1) "not in the archive"
+
+# The reason must survive into the timeline - that is the archive's only readable value.
+$goTimeline = (Call 'ideas:get' (@{ ideaId=$rvGo.value } | ConvertTo-Json -Compress) $rvToken).value.events
+$goEvent = @($goTimeline | Where-Object { $_.kind -eq 'letGo' })[0]
+Check "the timeline says what the decision was" ($null -ne $goEvent) "kinds=$(@($goTimeline | ForEach-Object { $_.kind }) -join ',')"
+Check "the timeline carries the reason" ($goEvent.detail -like '*2024 attempt*') "detail=$($goEvent.detail)"
+
+# SKIP changes nothing at all.
+$rvSkip = Call 'ideas:capture' (@{ title='Leave me alone for now' } | ConvertTo-Json -Compress) $rvToken 'mutation'
+$skipBefore = (Call 'ideas:get' (@{ ideaId=$rvSkip.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+$skipDecided = Call 'review:decide' (@{ ideaId=$rvSkip.value; outcome='skip' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "'skip' is accepted" ($skipDecided.status -eq 'success') "-> $($skipDecided.errorMessage)"
+$skipAfter = (Call 'ideas:get' (@{ ideaId=$rvSkip.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "'skip' leaves the status alone" ($skipAfter.status -eq $skipBefore.status) "$($skipBefore.status) -> $($skipAfter.status)"
+Check "'skip' leaves it unarchived" (-not $skipAfter.archived)
+Check "'skip' leaves it with no revisit date" ($null -eq $skipAfter.revisitAt) "revisitAt=$($skipAfter.revisitAt)"
+
+# Validation, refused on the server so it cannot be bypassed from a client.
+$badZero = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='park'; inDays=0 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a zero-day park is REFUSED" ($badZero.status -eq 'error') "status=$($badZero.status)"
+$badHuge = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='park'; inDays=3650 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a ten-year park is REFUSED" ($badHuge.status -eq 'error') "status=$($badHuge.status)"
+$badOutcome = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='nope' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "an unknown outcome is REFUSED" ($badOutcome.status -eq 'error') "status=$($badOutcome.status)"
+
+# A previous let-go is forgotten when the idea is tried again - committing to something
+# you had let go must not keep the old reason hanging over it.
+$goAgain = Call 'review:decide' (@{ ideaId=$rvGo.value; outcome='try'; inDays=7 } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "committing to a let-go idea clears the old reason" ($goAgain.status -eq 'success') "-> $($goAgain.errorMessage)"
+$goAgainRow = (Call 'ideas:get' (@{ ideaId=$rvGo.value } | ConvertTo-Json -Compress) $rvToken).value.idea
+Check "the reason is gone after committing" ($null -eq $goAgainRow.letGoReason) "reason=$($goAgainRow.letGoReason)"
+Check "and the idea is un-archived again" (-not $goAgainRow.archived) "archived=$($goAgainRow.archived)"
+
+# Ownership: deciding is a write, so it is gated like every other one.
+$rvForeign = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='skip' } | ConvertTo-Json -Depth 6 -Compress) $tokenB 'mutation'
+Check "another user cannot decide your idea" ($rvForeign.status -eq 'error') "status=$($rvForeign.status)"
+$rvUnauth = Call 'review:decide' (@{ ideaId=$rvTry.value; outcome='skip' } | ConvertTo-Json -Depth 6 -Compress) $null 'mutation'
+Check "a decision with no session is refused" ($rvUnauth.status -eq 'error') "status=$($rvUnauth.status)"
+# And a nonexistent idea must not be distinguishable from one that is not yours.
+$rvMissing = Call 'review:decide' (@{ ideaId='j97x3h4k8v7a5b2c9d6e1f0g3h'; outcome='skip' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
+Check "a fake id is refused without confirming it does not exist" ($rvMissing.status -eq 'error') "status=$($rvMissing.status)"
+
 Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
 # MUST BE LAST, and MUST use its own throwaway account.
 #

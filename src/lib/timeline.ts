@@ -34,7 +34,18 @@ export function describeEvent(kind: string, detail: string | null): string {
 			return detail ? `Judged — priority ${detail}` : 'Judged';
 		case 'unscored':
 			return 'Score cleared';
-		case 'snoozed':
+		// The four review decisions. Separate cases rather than falling through to a
+	// generic "reviewed", because a history is only worth reading if it says WHICH
+	// decision was made - "let it go" and "tried it" are opposite outcomes, and a
+	// timeline that called both "reviewed" would hide the actual behaviour.
+	case 'letGo': {
+		// The reason is the point. Never drop it: it is what makes the archive readable
+		// a year later rather than a graveyard.
+		return detail ? `Let go — ${detail.replace(/^let go:\s*/i, '')}` : 'Let go';
+	}
+	case 'reviewed':
+		return detail ? detail : 'Reviewed';
+	case 'snoozed':
 			return detail ? `Snoozed for ${detail}` : 'Snoozed';
 		case 'favorited':
 			return 'Starred';

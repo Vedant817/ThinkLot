@@ -124,26 +124,54 @@
 
 	async function snooze(item: Item, days: number) {
 		busyId = item.id;
-		await run(() => convex.mutation(api.review.snooze, { ideaId: item.id, days }));
+		await run(() => convex.mutation(api.review.decide, { ideaId: item.id, outcome: 'park', inDays: days }));
 		busyId = null;
 	}
 
 	async function promote(item: Item) {
 		busyId = item.id;
-		await run(() => convex.mutation(api.ideas.setStatus, { ideaId: item.id, status: 'ready' }));
+		await run(() => convex.mutation(api.review.decide, { ideaId: item.id, outcome: 'try', inDays: 7 }));
 		busyId = null;
 	}
 
-	async function archive(item: Item) {
+	/**
+	 * Which row is showing the "let go" reason form.
+	 *
+	 * Inline rather than a dialog, because a modal over a list the user is working
+	 * through is the fastest way to make them abandon the session. And the reason is
+	 * REQUIRED: a "let go" with no words behind it is just an archive with extra steps,
+	 * which is the exact confusion `review:decide` exists to remove.
+	 */
+	let lettingGoId = $state<string | null>(null);
+	let letGoReason = $state('');
+
+	function startLetGo(item: Item) {
+		lettingGoId = item.id;
+		letGoReason = '';
+		problem = null;
+	}
+
+	function cancelLetGo() {
+		lettingGoId = null;
+		letGoReason = '';
+	}
+
+	async function confirmLetGo(item: Item) {
+		if (!letGoReason.trim()) {
+			problem = 'Say why, in a few words. That is the part you will want to read later.';
+			return;
+		}
 		busyId = item.id;
 		await run(() =>
-			convex.mutation(api.ideas.setArchived, {
+			convex.mutation(api.review.decide, {
 				ideaId: item.id,
-				archived: true,
-				statusBeforeArchive: item.status
+				outcome: 'letGo',
+				reason: letGoReason.trim()
 			})
 		);
 		busyId = null;
+		lettingGoId = null;
+		letGoReason = '';
 	}
 </script>
 
@@ -279,45 +307,97 @@
 						</span>
 					</div>
 
+				<!--
+					The four decisions, each of which is a DECISION rather than a deferral.
+					Every one writes through Convex and the row disappears on its own via
+					the subscription, so there is no local state to keep in step with the
+					server.
+
+					Archive was replaced by Let it go because archive meant three
+					different things - finished, maybe later, and decided against - and none
+					of them was legible a month later. Delete was never right for any of
+					them, and the ones it was almost right for were the ones a person most
+					wanted to keep.
+				-->
+				<div class="mt-2.5 flex flex-wrap gap-1.5">
+					<button
+						type="button"
+						onclick={() => promote(item)}
+						disabled={busyId === item.id || item.status === 'ready'}
+						class="rounded border border-ok/30 bg-ok-soft px-2 py-1 font-mono text-[10px] tracking-wider text-ok uppercase transition-colors hover:brightness-105 disabled:opacity-40"
+					>
+						Try this week
+					</button>
+					<button
+						type="button"
+						onclick={() => snooze(item, 7)}
+						disabled={busyId === item.id}
+						class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
+					>
+						Park 7d
+					</button>
+					<button
+						type="button"
+						onclick={() => snooze(item, 30)}
+						disabled={busyId === item.id}
+						class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
+					>
+						Park 30d
+					</button>
+					<button
+						type="button"
+						onclick={() => startLetGo(item)}
+						disabled={busyId === item.id || lettingGoId === item.id}
+						class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-3 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
+					>
+						Let it go
+					</button>
+				</div>
+
+				{#if lettingGoId === item.id}
 					<!--
-						The three decisions the spec calls for. Each writes through Convex and
-						the row disappears on its own via the subscription, so there is no
-						local state to keep in step with the server.
+						Inline, not a modal: a dialog over a list the user is working through
+						is the fastest way to make them abandon the whole session.
+
+						The reason is required, and the form says what it is FOR. It is the only
+						thing that makes the archive readable a year later. Repeatable, not
+						sticky - Same as the 2024 attempt is a good answer, and a form that
+						made people think harder would simply go unused.
 					-->
-					<div class="mt-2.5 flex flex-wrap gap-1.5">
-						<button
-							type="button"
-							onclick={() => promote(item)}
-							disabled={busyId === item.id || item.status === 'ready'}
-							class="rounded border border-ok/30 bg-ok-soft px-2 py-1 font-mono text-[10px] tracking-wider text-ok uppercase transition-colors hover:brightness-105 disabled:opacity-40"
-						>
-							Promote
-						</button>
-						<button
-							type="button"
-							onclick={() => snooze(item, 7)}
-							disabled={busyId === item.id}
-							class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
-						>
-							Snooze 7d
-						</button>
-						<button
-							type="button"
-							onclick={() => snooze(item, 30)}
-							disabled={busyId === item.id}
-							class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
-						>
-							Snooze 30d
-						</button>
-						<button
-							type="button"
-							onclick={() => archive(item)}
-							disabled={busyId === item.id}
-							class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-3 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
-						>
-							Archive
-						</button>
+					<div class="mt-2 rounded-md border border-rule-strong bg-panel p-2.5">
+						<label class="block">
+							<span class="font-mono text-[10px] tracking-wider text-ink-3 uppercase">
+								Why are you letting it go?
+							</span>
+							<textarea
+								bind:value={letGoReason}
+								rows="2"
+								placeholder="Same thing as the 2024 attempt, which shipped"
+								class="mt-1 block w-full resize-y rounded-md border border-rule bg-paper px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-3 focus:border-signal"
+							></textarea>
+						</label>
+						<p class="mt-1 text-sm text-ink-3">
+							Kept with your reason, not deleted - and reversible from the archive.
+						</p>
+						<div class="mt-2 flex gap-1.5">
+							<button
+								type="button"
+								onclick={() => confirmLetGo(item)}
+								disabled={busyId === item.id || !letGoReason.trim()}
+								class="rounded border border-ok/30 bg-ok-soft px-2 py-1 font-mono text-[10px] tracking-wider text-ok uppercase transition-colors hover:brightness-105 disabled:opacity-40"
+							>
+								Let it go for good
+							</button>
+							<button
+								type="button"
+								onclick={cancelLetGo}
+								class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk"
+							>
+								Keep it
+							</button>
+						</div>
 					</div>
+				{/if}
 				</li>
 			{/each}
 		</ul>

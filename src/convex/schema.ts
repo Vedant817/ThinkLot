@@ -141,6 +141,20 @@ const schema = defineSchema({
 		/** When the user asked to be reminded about this idea. */
 		revisitAt: v.optional(v.number()),
 
+		/**
+		 * Why the user let this go, recorded at the moment they decided.
+		 *
+		 * The problem this solves: "archive" means three different things - finished,
+		 * maybe later, and decided against - and delete is wrong for all three. So a
+		 * decision that rejects an idea archives it AND keeps the reason, which is what
+		 * makes the archive readable months later instead of being a graveyard.
+		 *
+		 * Optional and never required, so every idea that existed before this still
+		 * reads, and an idea archived without deciding carries no decision at all.
+		 */
+		letGoAt: v.optional(v.number()),
+		letGoReason: v.optional(v.string()),
+
 		source: ideaSource,
 		/** Raw dictated text, kept verbatim for later re-parsing. */
 		transcript: v.optional(v.string()),
