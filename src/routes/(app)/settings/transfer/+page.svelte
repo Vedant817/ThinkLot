@@ -35,6 +35,7 @@
 		type PortableIdea,
 		type ImportCandidate
 	} from '$lib/portability';
+	import { importFromPmSource } from '$lib/pm-import';
 
 	type ExportPayload = {
 		ideas: PortableIdea[];
@@ -89,6 +90,17 @@
 	// --- import ---------------------------------------------------------------------
 	let fileName = $state<string | null>(null);
 	let parsed = $state<ReturnType<typeof parseMarkdownImport> | null>(null);
+	/**
+	 * What the file was, and which of its columns this app could not use.
+	 *
+	 * Both are shown on screen. Detection is shown because "we guessed this is Jira"
+	 * must be checkable, and the unmapped columns are shown because a real Jira export
+	 * has ~200 of them - silently importing 6 and saying nothing about the other 194 is
+	 * the exact behaviour that makes an import untrustworthy.
+	 */
+	let detected = $state<{ source: string; label: string; confidence: string; matched: string[]; note?: string } | null>(
+		null
+	);
 	let parseError = $state<string | null>(null);
 	let importing = $state(false);
 	let result = $state<{ imported: number; skipped: { title: string; reason: string }[]; remaining: number } | null>(
@@ -99,53 +111,28 @@
 	const split = $derived(parsed ? partitionForImport(findImportDuplicates(parsed.candidates, existingTitles)) : null);
 
 	/**
-	 * Format is chosen by CONTENT, not by the extension the user picked.
+	 * Everything about a file, decided the same way for every source.
 	 *
-	 * A `.md` file that is actually CSV, or a JSON backup renamed `.txt`, both appear in
-	 * practice - and guessing wrong produces an import of one nonsense idea instead of a
-	 * clear message. Sniffing the first non-blank character is enough to tell them apart
-	 * and is what the user would have done by opening the file.
+	 * This used to be three hand-written paths (JSON backup, CSV, Markdown) with their
+	 * own guesses. `importFromPmSource` replaces them because a product manager's file is
+	 * not one of three things: it is a Jira export, or a Linear CSV, or a Trello board, or
+	 * an Obsidian vault, and the differences between those are which columns they ship -
+	 * which is what `pm-import.ts` knows and this function did not.
 	 */
 	function detectAndParse(text: string, name: string): ReturnType<typeof parseMarkdownImport> {
-		const firstMeaningful = text.replace(/^\s+/, '')[0];
-
-		if (firstMeaningful === '{' || firstMeaningful === '[') {
-			try {
-				const json = JSON.parse(text) as { ideas?: unknown; format?: string };
-				if (Array.isArray(json.ideas)) {
-			const ideas = json.ideas as PortableIdea[];
-					// A backup of this app's own export.
-					//
-					// Projected through the SHARED mapping in lib/portability rather than
-					// field-by-field, because the export is a full document and the import
-					// endpoint accepts a writing form. Passing the export's own fields through
-					// fails with "Object contains extra field _id" - which is exactly what
-					// happened, and it made the obvious export-then-import round trip fail.
-					//
-					// This comment used to claim statuses were restored "verbatim". They are
-					// not, and should not be: a restored idea has not been re-judged, and
-					// pre-setting a status would assert a decision the user never made here.
-					const mapped = ideas.map(backupToImportEntry).filter((entry): entry is ImportCandidate => entry !== null);
-					return {
-						candidates: mapped,
-						skipped: ideas
-							.map((idea) => ({ idea, entry: backupToImportEntry(idea) }))
-							.filter((row) => row.entry === null)
-							.map((row) => ({ source: String(row.idea.title ?? 'unnamed'), reason: 'no title to import' }))
-					};
-				}
-			} catch {
-				// Falls through to the text parsers, which will report something useful.
-			}
-		}
-
-		// A header row of known column names is CSV however the file is named.
-		const header = text.split('\n', 1)[0]?.toLowerCase() ?? '';
-		if (header.includes(',') && /(^|[,\s])(title|seq)($|[,\s])/.test(header)) {
-			return parseCsvImport(text);
-		}
-		return parseMarkdownImport(text);
+		const outcome = importFromPmSource(text, name);
+		detected = {
+			source: outcome.detection.source.id,
+			label: outcome.detection.source.label,
+			confidence: outcome.detection.confidence,
+			matched: outcome.detection.matched,
+			note: outcome.detection.note
+		};
+		unmapped = outcome.unmappedColumns;
+		return { candidates: outcome.entries, skipped: outcome.skipped };
 	}
+
+	let unmapped = $state<string[]>([]);
 
 	async function onFile(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -156,6 +143,8 @@
 		parseError = null;
 		result = null;
 		parsed = null;
+		detected = null;
+		unmapped = [];
 
 		if (file.size > 8 * 1024 * 1024) {
 			parseError = 'That file is over 8 MB. Import it in pieces, or split it first.';
@@ -323,6 +312,59 @@
 			<div class="mt-4 rounded-lg border border-rule bg-panel p-4">
 				<p class="font-mono text-[11px] tracking-wider text-ink-3 uppercase">{fileName}</p>
 
+				<!--
+					What this app thought the file was, and how sure it is.
+
+					Shown because a guess presented as a fact is a lie the user cannot
+					check. "Read as Jira" invites "no, that is Linear", and either way the
+					import works - but the person who dragged the file in should be the one
+					who knows what it was.
+				-->
+				{#if detected}
+					<p class="mt-2 text-sm text-ink-2">
+						Read as {detected.label}
+						{#if detected.confidence !== 'exact'}
+							<span class="text-ink-3">(probably)</span>
+						{/if}
+						{#if detected.matched.length > 0}
+							<span class="text-ink-3"> — saw {detected.matched.join(', ')}</span>
+						{/if}
+					</p>
+					{#if detected.note}
+						<p class="mt-1 text-sm text-ink-3">{detected.note}</p>
+					{/if}
+				{/if}
+
+				<!--
+					Every column this app had NO field for.
+
+					This is the reason a product manager can trust a Jira import: a real
+					export has around 200 columns, six of which map, and the other 194 are
+					NAMED here rather than quietly discarded. A blank version of this line
+					would claim every column was understood, which is never true of a real
+					export - and the importer that says nothing is the one with a bug.
+				-->
+				{#if unmapped.length > 0}
+					<details class="mt-2">
+						<summary class="cursor-pointer font-mono text-[11px] tracking-wider text-ink-3 uppercase">
+							{unmapped.length} column{unmapped.length === 1 ? '' : 's'} not imported
+						</summary>
+						<p class="mt-2 text-sm text-ink-3">
+							ThinkLot has no field for these. They are listed rather than dropped silently, so you know
+							exactly what stayed behind - and your original file is untouched.
+						</p>
+						<ul class="mt-1.5 flex flex-wrap gap-1">
+							{#each unmapped as column (column)}
+								<li class="rounded border border-rule-strong bg-paper px-1.5 font-mono text-[10px] text-ink-2">
+									{column}
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{:else if (parsed?.candidates.length ?? 0) > 0}
+					<p class="mt-2 text-sm text-ink-3">Every column in it mapped to a ThinkLot field.</p>
+				{/if}
+
 				<p class="mt-2 text-sm text-ink-2">
 					{split.fresh.length} new
 					{#if split.duplicates.length}
@@ -374,11 +416,29 @@
 						<summary class="cursor-pointer font-mono text-[11px] tracking-wider text-ink-3 uppercase">
 							Will add ({split.fresh.length})
 						</summary>
-						<ul class="mt-2 max-h-64 space-y-1 overflow-y-auto">
-							{#each split.fresh as entry (entry.title)}
-								<li class="truncate text-sm text-ink-2">{entry.title}</li>
-							{/each}
-						</ul>
+					<ul class="mt-2 max-h-64 space-y-1.5 overflow-y-auto">
+						{#each split.fresh as entry (entry.title)}
+							<li class="text-sm text-ink-2">
+								<span class="font-medium text-ink">{entry.title}</span>
+								<!--
+									What came with it, shown before the import rather than after.
+									A preview that listed only titles could not be checked: 300
+									plausible titles and no way to see whether the description,
+									problem or tags survived the parse. Everything about this
+									screen argues the user should verify the mapping before
+									committing to it, so the mapping is shown here.
+								-->
+								{#if entry.description || entry.problem || entry.audience || entry.outcome}
+									<span class="block truncate text-ink-3">
+										{entry.description ?? entry.problem ?? entry.audience ?? entry.outcome}
+									</span>
+								{/if}
+								{#if entry.tags.length}
+									<span class="font-mono text-[10px] text-ink-3">#{entry.tags.join(' #')}</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
 					</details>
 
 					<button

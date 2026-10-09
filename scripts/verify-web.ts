@@ -246,6 +246,73 @@ async function main() {
 		}
 	}
 
+	console.log('\n== a real Jira export lands and REPORTS what it could not read ==');
+
+	// A product manager's actual file. Thirteen columns, six of which map. The
+	// unmapped report is the product: a real Jira export has ~200 columns, and the
+	// ones this app has no field for are NAMED rather than quietly discarded.
+	await page.goto(`${BASE}/settings/transfer`);
+	await waitForAll(page, ['Import and export'], 'transfer');
+
+	const jiraLines = [
+		'Issue Type,Issue key,Summary,Assignee,Reporter,Priority,Status,Resolution,Created,Updated,Description,Labels,Labels',
+		'Story,PM-1,"Cancellation waitlist",pm@example.com,pm@example.com,High,In Progress,Unresolved,2026-03-01T10:00:00Z,2026-03-02T11:00:00Z,"Customers cancel and nobody fills the slot.",scheduling,revenue'
+	];
+
+	const jiraCsv = await page.evaluate<string>(`
+		(() => {
+			const rows = ${JSON.stringify(jiraLines)};
+			const text = rows.join('\\n');
+			const file = new File([text], 'issues.csv', { type: 'text/csv' });
+			const dt = new DataTransfer();
+			dt.items.add(file);
+			const input = document.querySelector('[data-import-input]');
+			if (!input) return 'no file input';
+			input.files = dt.files;
+			input.dispatchEvent(new Event('change', { bubbles: true }));
+			return input.files[0] ? input.files[0].name : 'no file';
+		})()
+	`);
+
+	check('a Jira CSV was handed to the import input', jiraCsv === 'issues.csv', String(jiraCsv));
+
+	// `file.text()` is async, so the parsed panel appears on a later tick. Reading
+	// immediately after the event found the source name but nothing else, because
+	// the parse had not finished. This polls for the panel rather than sleeping a
+	// fixed time, so a slow disk is still correct.
+	await page.evaluate(`
+		new Promise((resolve) => {
+			const started = Date.now();
+			const tick = () => {
+				const body = document.body.textContent;
+				if (body.includes('not imported') || body.includes('Read as')) return resolve(true);
+				if (Date.now() - started > 6000) return resolve(false);
+				setTimeout(tick, 50);
+			};
+			tick();
+		})
+	`);
+
+	// textContent, not innerText. The imported rows live inside a collapsed
+	// <details>, and innerText returns text AS RENDERED - display:none content is
+	// absent from it, and the column chips are styled lowercase. Both made this
+	// suite report failures on a page that was working, which is the same trap
+	// documented elsewhere in this harness.
+	const jiraBody: string = await page.evaluate('document.body.textContent');
+
+	check('the importer says it read a Jira export', /Jira/.test(jiraBody), jiraBody.slice(0, 300));
+	check('and names the columns it identified it by', /Issue key|Issue type|Resolution/.test(jiraBody));
+	check('it reports how many columns were not imported', /column[s]? not imported/i.test(jiraBody), jiraBody.slice(0, 400));
+	check('a Jira-only column is named in the report', /Created|Updated|Priority/.test(jiraBody));
+	check('the import offers the Jira row as ideas', /Cancellation waitlist/.test(jiraBody));
+	check('and keeps the description from the Description column', /Customers cancel and nobody fills/.test(jiraBody));
+	check('and the second Labels column became a tag', /revenue/.test(jiraBody));
+
+	console.log('JIRA-DEBUG-START');
+	console.log(jiraBody.slice(0, 1500));
+	console.log('JIRA-DEBUG-END');
+	await page.screenshot(`${SHOTS}/transfer-jira.png`);
+
 	console.log('\n== AI settings: the honesty and safety of a BYOK key ==');
 
 	await page.goto(`${BASE}/settings/ai`);

@@ -105,7 +105,17 @@ const ALIASES: Record<AliasedField, string[]> = {
 		'result', 'definition of done', 'deliverable', 'done when', 'exit criteria'
 	],
 	trigger: ['trigger', 'origin', 'context', 'why now', 'where it came from', 'feedback', 'requested by'],
-	tags: ['tags', 'labels', 'label', 'components', 'component', 'keywords', 'category', 'epic', 'epic link', 'sprint', 'milestone', 'version', 'fix version', 'affects version', 'type', 'issue type', 'priority', 'status'],
+	tags: [
+		'tags', 'labels', 'label', 'components', 'component', 'keywords', 'category',
+		// Deliberately NOT `status`, `issue type` or `type`. Jira's workflow status
+		// ("In Progress") and work type ("Story") become `#in progress` and `#story`
+		// - noise that means nothing in a personal idea lot, where `status` already
+		// exists with a different set of values. Those columns belong in the unmapped
+		// report, which is what it is for. `Priority` stays: "was high priority" is
+		// real information about the idea, not metadata about the ticket.
+		'priority',
+		'epic', 'epic link', 'sprint', 'milestone', 'version', 'fix version', 'affects version'
+	],
 	transcript: []
 };
 
