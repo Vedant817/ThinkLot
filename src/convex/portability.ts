@@ -147,6 +147,17 @@ export const exportAll = query({
 			trigger: row.trigger,
 			transcript: row.transcript,
 			revisitAt: row.revisitAt,
+			// How the text arrived. Dropped from the first version of this mapping, which
+			// made an export silently unable to tell a dictated idea from a typed one - and
+			// a backup that loses which of the two it was cannot be re-parsed as faithfully
+			// as it claims.
+			source: row.source,
+			// The abandonment decision and its reason. The reason is the single most valuable
+			// field the review feature produces - it is what makes an archive readable a
+			// year later - and it was absent from every export, so a restored lot looked
+			// like ideas with unexplained disappearances.
+			letGoAt: row.letGoAt,
+			letGoReason: row.letGoReason,
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 			tasks: ordered.get(String(row._id)) ?? []
@@ -174,7 +185,14 @@ export const importMany = mutation({
 				outcome: v.optional(v.string()),
 				trigger: v.optional(v.string()),
 				transcript: v.optional(v.string()),
-				tags: v.optional(v.array(v.string()))
+				tags: v.optional(v.array(v.string())),
+				// Restoration fields, present only when the entry came from a backup. They
+				// are read as DATA rather than re-derived, because a backup is not a
+				// judgement to be repeated - it is a record of one already made.
+				revisitAt: v.optional(v.number()),
+				source: v.optional(v.string()),
+				letGoAt: v.optional(v.number()),
+				letGoReason: v.optional(v.string())
 			})
 		)
 	},
@@ -224,8 +242,37 @@ export const importMany = mutation({
 				continue;
 			}
 
-			seq += 1;
-			const at = nowMs();
+		/*
+		 * A BACKUP restores the decision it recorded; a foreign import does not.
+		 *
+		 * The distinction is `letGoAt` being present, which only a backup of this
+		 * app's own export carries. So restoring an idea you decided against puts it
+		 * back WITH its reason - the whole point of the field - while importing 300
+		 * Obsidian notes cannot accidentally create 300 archived ideas with invented
+		 * reasons.
+		 *
+		 * A separate record rather than a union spread, because Convex's insert type
+		 * rejects a union of field sets.
+		 */
+		const restoration: Record<string, unknown> = {};
+		if (entry.letGoAt) {
+			restoration.letGoAt = entry.letGoAt;
+			if (entry.letGoReason) restoration.letGoReason = normaliseBody(entry.letGoReason);
+			restoration.archived = true;
+			/*
+			 * `undefined`, not `null`.
+			 *
+			 * A let-go idea is not also pending a revisit - those are opposite facts - so
+			 * the field has to be cleared rather than left alone. Convex accepts an
+			 * absent optional field and rejects a literal null, which the `let go`
+			 * decision path already proved once.
+			 */
+			restoration.revisitAt = undefined;
+		} else if (entry.revisitAt) {
+			restoration.revisitAt = entry.revisitAt;
+		}
+		seq += 1;
+		const at = nowMs();
 			const ideaId = await ctx.db.insert('ideas', {
 				userId,
 				seq,
@@ -245,15 +292,19 @@ export const importMany = mutation({
 				// validator accepts and the document then fails on.
 				tags: normaliseTags(entry.tags) ?? [],
 				favorite: false,
-				archived: false,
-				...(entry.description ? { description: normaliseBody(entry.description) } : {}),
-				...(entry.problem ? { problem: normaliseBody(entry.problem) } : {}),
-				...(entry.audience ? { audience: normaliseBody(entry.audience) } : {}),
-				...(entry.outcome ? { outcome: normaliseBody(entry.outcome) } : {}),
-				...(entry.trigger ? { trigger: normaliseBody(entry.trigger) } : {}),
-				...(entry.transcript ? { transcript: normaliseBody(entry.transcript) } : {}),
-				createdAt: at,
-				updatedAt: at
+				// NOT pre-decided as done, and never pre-archived. A restored idea has not
+				// been re-judged in this app, and setting a status would quietly assert a
+				// decision the user never made here.
+			archived: false,
+			...(entry.description ? { description: normaliseBody(entry.description) } : {}),
+			...(entry.problem ? { problem: normaliseBody(entry.problem) } : {}),
+			...(entry.audience ? { audience: normaliseBody(entry.audience) } : {}),
+			...(entry.outcome ? { outcome: normaliseBody(entry.outcome) } : {}),
+			...(entry.trigger ? { trigger: normaliseBody(entry.trigger) } : {}),
+			...(entry.transcript ? { transcript: normaliseBody(entry.transcript) } : {}),
+			...restoration,
+			createdAt: entry.letGoAt ? entry.letGoAt : at,
+			updatedAt: at
 			});
 
 			await ctx.db.insert('ideaEvents', {

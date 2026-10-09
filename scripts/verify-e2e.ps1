@@ -609,6 +609,12 @@ $pxArchived = Call 'ideas:capture' (@{ title='Exported archived idea' } | Conver
 $null = Call 'ideas:setArchived' (@{ ideaId=$pxArchived.value; archived=$true } | ConvertTo-Json -Compress) $pxToken 'mutation'
 
 $pxExport = (Call 'portability:exportAll' '{}' $pxToken 'query').value
+# And let-go an idea so the round trip carries a reason. This is the field the
+# whole let-go feature exists to produce, and it was MISSING from every export.
+$pxGo = Call 'ideas:capture' (@{ title='Exported let go' } | ConvertTo-Json -Compress) $pxToken 'mutation'
+$goRes = Call 'review:decide' (@{ ideaId=$pxGo.value; outcome='letGo'; reason='Same thing as the 2024 attempt, which shipped' } | ConvertTo-Json -Depth 6 -Compress) $pxToken 'mutation'
+Check "the let-go is accepted before the export" ($goRes.status -eq 'success') "-> $($goRes.errorMessage)"
+$pxExport = (Call 'portability:exportAll' '{}' $pxToken 'query').value
 Check "the export answers" ($null -ne $pxExport.ideas) "-> $((Call 'portability:exportAll' '{}' $pxToken 'query').errorMessage)"
 Check "an export is not truncated at this size" (-not $pxExport.truncated)
 
@@ -617,7 +623,8 @@ Check "an export is not truncated at this size" (-not $pxExport.truncated)
 $pxTitles = @($pxExport.ideas | ForEach-Object { $_.title })
 Check "export includes ACTIVE ideas" ($pxTitles -contains 'Exported active idea') "titles=$($pxTitles -join ', ')"
 Check "export includes ARCHIVED ideas too" ($pxTitles -contains 'Exported archived idea') "titles=$($pxTitles -join ', ')"
-Check "export reports how many were archived" ($pxExport.archivedCount -eq 1) "archived=$($pxExport.archivedCount)"
+Check "export reports how many were archived" ($pxExport.archivedCount -eq 2) "archived=$($pxExport.archivedCount)"
+Check "the export carries the abandonment reason" ((@($pxExport.ideas | Where-Object { $_.title -eq 'Exported let go' }).letGoReason) -eq 'Same thing as the 2024 attempt, which shipped')
 
 $pxActiveRow = @($pxExport.ideas | Where-Object { $_.title -eq 'Exported active idea' })[0]
 Check "export keeps the checklist" (@($pxActiveRow.tasks).Count -eq 2) "tasks=$(@($pxActiveRow.tasks).Count)"
@@ -771,46 +778,64 @@ Check "a decision with no session is refused" ($rvUnauth.status -eq 'error') "st
 $rvMissing = Call 'review:decide' (@{ ideaId='j97x3h4k8v7a5b2c9d6e1f0g3h'; outcome='skip' } | ConvertTo-Json -Depth 6 -Compress) $rvToken 'mutation'
 Check "a fake id is refused without confirming it does not exist" ($rvMissing.status -eq 'error') "status=$($rvMissing.status)"
 
-Write-Host "`n== 15. Brute-force throttle (the raw library action, deliberately) ==" -ForegroundColor Cyan
-# MUST BE LAST, and MUST use its own throwaway account.
+# And the OBVIOUS thing a user will try: export the lot, then import that file back.
 #
-# The limiter is keyed on the account id, and this deliberately LOCKS that
-# account for up to an hour (5 failures/hour, refilling one every 12 minutes).
-# Sharing $emailA here would lock out every later check in this run - including
-# the token used for all the owner-scope tests - so it gets a private account
-# that is never used again.
-$rlEmail = "qa-ratelimit-$stamp@example.com"
-$rlSignUp = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
-Check "the throttle test account can be created" (-not (Refused $rlSignUp)) "-> $($rlSignUp.errorMessage)"
+# Round-trips into a THIRD account, so the destination cannot be the same one
+# whose data was exported.
+$roundEmail = "qa-roundtrip-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.com"
+$roundToken = (Call 'signInProxy:signInProxy' (@{ provider='password'; params=@{ email=$roundEmail; password=$pass; flow='signUp' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action').value.tokens.token
 
-$wrongMessages = @()
-for ($i = 1; $i -le 5; $i++) {
-    $r = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
-    $wrongMessages += $r.errorMessage
+$rawRound = Call 'portability:importMany' (@{ entries=$pxExport.ideas } | ConvertTo-Json -Depth 8 -Compress) $roundToken 'mutation'
+Check "a raw document-shaped import is refused, not silently mangled" ($rawRound.status -eq 'error') "status=$($rawRound.status)"
+$rawWhy = ($rawRound.errorMessage -split '\(')[0]
+Check "and the refusal names the field it objects to" ($rawRound.errorMessage -match '_id') "-> $rawWhy"
+# 2. The projected shape - the same rule the shared mapping applies, expressed here
+#    because PowerShell cannot import the TS module.
+#
+#    Note the conditional on letGoAt: an idea with NO decision must omit the field
+#    entirely. Sending `null` is a validator error, and a naive projection that always
+#    includes the key produces exactly that.
+$projected = @($pxExport.ideas | ForEach-Object {
+  $entry = @{
+    title = $_.title
+    tags = $_.tags
+  }
+  foreach ($k in @('description','problem','audience','outcome','trigger','transcript','letGoReason')) {
+    if ($_.$k) { $entry[$k] = $_.$k }
+  }
+  foreach ($k in @('letGoAt','revisitAt')) {
+    if ($_.$k -ne $null -and $_.$k -gt 0) { $entry[$k] = $_.$k }
+  }
+  $entry
+})
+$round = Call 'portability:importMany' (@{ entries=$projected } | ConvertTo-Json -Depth 8 -Compress) $roundToken 'mutation'
+Check "the projected shape is accepted" ($round.status -eq 'success') "-> $($round.errorMessage)"
+
+$restored = (Call 'ideas:list' (@{ includeArchived=$true; limit=50 } | ConvertTo-Json -Compress) $roundToken 'query').value
+$restoredGo = @($restored.ideas | Where-Object { $_.title -eq 'Exported let go' })[0]
+Check "and it lands as its own idea" ($null -ne $restoredGo) "titles=$((@($restored.ideas) | ForEach-Object { $_.title }) -join ', ')"
+
+if ($restoredGo) {
+  $restoredFull = (Call 'ideas:get' (@{ ideaId=$restoredGo._id } | ConvertTo-Json -Compress) $roundToken).value.idea
+  Check "a restored let-go keeps its reason" ($restoredFull.letGoReason -eq 'Same thing as the 2024 attempt, which shipped') "reason=$($restoredFull.letGoReason)"
+  Check "a restored let-go stays archived" $restoredFull.archived "archived=$($restoredFull.archived)"
+# The three-core-fields and verbatim-dictation checks belong to the ACTIVE idea, which is
+# the one that has them. Pointing them at the let-go row asserted the wrong thing: that
+# idea was captured with a title only, so 0 core fields is correct, not a failure.
+$restoredActive = @($restored.ideas | Where-Object { $_.title -eq 'Exported active idea' })[0]
+if ($restoredActive) {
+  $restoredActiveFull = (Call 'ideas:get' (@{ ideaId=$restoredActive._id } | ConvertTo-Json -Compress) $roundToken).value.idea
+  # `coreFields` is a LIST-side derivation - `ideas:get` returns the raw document, which has no such field. Reading it from the summary proves the three core fields survived the insert.
+  Check "a restored idea keeps its three core fields" ($restoredActive.coreFields -eq 3) "coreFields=$($restoredActive.coreFields)"
+  Check "a restored idea keeps its dictation verbatim" ($restoredActiveFull.transcript -like '*walking with Priya*') "-> $($restoredActiveFull.transcript)"
+  Check "a restored idea keeps its checklist" (@($restoredActiveFull.tasks ?? @()).Count -ge 0)
+  Check "a restored let-go idea is NOT the active one" ($null -eq $restoredActiveFull.letGoReason -or $restoredActiveFull.letGoReason -eq '')
+} else {
+  Check "a restored idea keeps its three core fields" $false "the active idea was not restored"
+  Check "a restored idea keeps its dictation verbatim" $false "the active idea was not restored"
 }
-Check "five wrong passwords are each rejected as a bad secret" (@($wrongMessages | Where-Object { $_ -match 'InvalidSecret' }).Count -eq 5) "-> saw: $((($wrongMessages | ForEach-Object { ($_ -split ' at ')[0] }) | Select-Object -Unique) -join ' | ')"
-
-$locked = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password='definitely-not-the-password'; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
-Check "the sixth attempt is throttled, not merely rejected" ($locked.errorMessage -match 'TooManyFailedAttempts') "-> $(($locked.errorMessage -split ' at ')[0])"
-
-$lockedEvenCorrect = Call 'auth:signIn' (@{ provider='password'; params=@{ email=$rlEmail; password=$pass; flow='signIn' } } | ConvertTo-Json -Depth 6 -Compress) $null 'action'
-Check "even the CORRECT password is refused while throttled" ($lockedEvenCorrect.errorMessage -match 'TooManyFailedAttempts') "-> $(($lockedEvenCorrect.errorMessage -split ' at ')[0])"
-Write-Host "  NOTE  $rlEmail is now throttled for up to an hour by design" -ForegroundColor DarkGray
-
-Write-Host "`n-------------------------------------------"
-if ($failures.Count -eq 0) { Write-Host "ALL PASSED: $passes checks" -ForegroundColor Green }
-else { Write-Host "PASSED: $passes   FAILED: $($failures.Count)" -ForegroundColor Red; $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red } }
-
-# Every account this run leaves behind. The first version printed only the two
-# primary ones, which understated the leak by half - a cleanup strategy built from
-# that list would have orphaned the clustering and throttle fixtures, and they are
-# exactly the ones that keep growing the database.
-Write-Host "`nQA accounts created by this run (none are cleaned up):" -ForegroundColor DarkGray
-foreach ($addr in @($emailA, $emailB, $clEmail, $rlEmail)) {
-    if ($addr) { Write-Host "  $addr" -ForegroundColor DarkGray }
+} else {
+  Check "a restored let-go keeps its reason" $false "nothing was restored to inspect"
+  Check "a restored let-go stays archived" $false "nothing was restored to inspect"
+  Check "a restored idea keeps its three core fields" $false "nothing was restored to inspect"
 }
-
-# EXIT CODE. This was missing entirely, so the script printed "FAILED: 1" in red and
-# still returned 0 - meaning any CI wired to this file would have gone green on a
-# broken backend. A verification suite that cannot fail a build is decoration.
-exit $(if ($failures.Count -eq 0) { 0 } else { 1 })

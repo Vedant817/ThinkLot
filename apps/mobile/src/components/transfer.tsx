@@ -3,6 +3,7 @@ import { Share } from "react-native";
 import { useMutation } from "convex/react";
 import {
   api,
+  backupToImportEntry,
   exportFilename,
   findImportDuplicates,
   parseCsvImport,
@@ -129,6 +130,9 @@ export function Transfer() {
             ...(entry.trigger ? { trigger: entry.trigger } : {}),
             ...(entry.transcript ? { transcript: entry.transcript } : {}),
             ...(entry.tags.length ? { tags: entry.tags } : {}),
+            ...(entry.revisitAt ? { revisitAt: entry.revisitAt } : {}),
+            ...(entry.letGoAt ? { letGoAt: entry.letGoAt } : {}),
+            ...(entry.letGoReason ? { letGoReason: entry.letGoReason } : {}),
           })),
         });
         imported += outcome.imported;
@@ -267,19 +271,29 @@ function detectAndParse(text: string): ReturnType<typeof parseMarkdownImport> {
     try {
       const json = JSON.parse(text) as { ideas?: unknown };
       if (Array.isArray(json.ideas)) {
+        /*
+         * A backup of this app's own export, projected through the SHARED mapping in
+         * lib/portability rather than field-by-field here.
+         *
+         * The export is a full document - `_id`, `seq`, `status`, `tasks`, `favorite`,
+         * `createdAt` - and the import endpoint accepts a writing form. Passing the
+         * export's own fields through fails with "Object contains extra field _id",
+         * which is exactly what happened: the obvious export-then-import round trip
+         * failed outright. One mapping, used by both clients.
+         */
         const ideas = json.ideas as PortableIdea[];
+        const mapped = ideas
+          .map(backupToImportEntry)
+          .filter((entry): entry is ImportCandidate => entry !== null);
         return {
-          candidates: ideas.map((idea) => ({
-            title: String(idea.title ?? ""),
-            ...(idea.description ? { description: String(idea.description) } : {}),
-            ...(idea.problem ? { problem: String(idea.problem) } : {}),
-            ...(idea.audience ? { audience: String(idea.audience) } : {}),
-            ...(idea.outcome ? { outcome: String(idea.outcome) } : {}),
-            ...(idea.trigger ? { trigger: String(idea.trigger) } : {}),
-            ...(idea.transcript ? { transcript: String(idea.transcript) } : {}),
-            tags: Array.isArray(idea.tags) ? idea.tags.map(String) : [],
-          })),
-          skipped: [],
+          candidates: mapped,
+          skipped: ideas
+            .map((idea) => ({ idea, entry: backupToImportEntry(idea) }))
+            .filter((row) => row.entry === null)
+            .map((row) => ({
+              source: String(row.idea.title ?? "unnamed"),
+              reason: "no title to import",
+            })),
         };
       }
     } catch {

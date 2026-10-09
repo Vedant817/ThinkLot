@@ -27,6 +27,7 @@
 		toCsv,
 		toBackupJson,
 		exportFilename,
+		backupToImportEntry,
 		parseMarkdownImport,
 		parseCsvImport,
 		findImportDuplicates,
@@ -112,21 +113,25 @@
 			try {
 				const json = JSON.parse(text) as { ideas?: unknown; format?: string };
 				if (Array.isArray(json.ideas)) {
-					// A backup of this app's own export. Restored verbatim, including
-					// statuses, because the user exported them deliberately.
-					const ideas = json.ideas as PortableIdea[];
+			const ideas = json.ideas as PortableIdea[];
+					// A backup of this app's own export.
+					//
+					// Projected through the SHARED mapping in lib/portability rather than
+					// field-by-field, because the export is a full document and the import
+					// endpoint accepts a writing form. Passing the export's own fields through
+					// fails with "Object contains extra field _id" - which is exactly what
+					// happened, and it made the obvious export-then-import round trip fail.
+					//
+					// This comment used to claim statuses were restored "verbatim". They are
+					// not, and should not be: a restored idea has not been re-judged, and
+					// pre-setting a status would assert a decision the user never made here.
+					const mapped = ideas.map(backupToImportEntry).filter((entry): entry is ImportCandidate => entry !== null);
 					return {
-						candidates: ideas.map((idea) => ({
-							title: String(idea.title ?? ''),
-							...(idea.description ? { description: String(idea.description) } : {}),
-							...(idea.problem ? { problem: String(idea.problem) } : {}),
-							...(idea.audience ? { audience: String(idea.audience) } : {}),
-							...(idea.outcome ? { outcome: String(idea.outcome) } : {}),
-							...(idea.trigger ? { trigger: String(idea.trigger) } : {}),
-							...(idea.transcript ? { transcript: String(idea.transcript) } : {}),
-							tags: Array.isArray(idea.tags) ? idea.tags.map(String) : []
-						})),
-						skipped: []
+						candidates: mapped,
+						skipped: ideas
+							.map((idea) => ({ idea, entry: backupToImportEntry(idea) }))
+							.filter((row) => row.entry === null)
+							.map((row) => ({ source: String(row.idea.title ?? 'unnamed'), reason: 'no title to import' }))
 					};
 				}
 			} catch {

@@ -13,6 +13,7 @@ import {
 	toCsv,
 	toBackupJson,
 	exportFilename,
+	backupToImportEntry,
 	parseMarkdownImport,
 	parseCsvImport,
 	findImportDuplicates,
@@ -49,14 +50,27 @@ const idea = (over: Partial<PortableIdea> = {}): PortableIdea => ({
 const full = idea();
 const archived = idea({ _id: 'i2', seq: 2, title: 'Old sync idea', status: 'done', archived: true, transcript: undefined });
 
+// An idea the user LET GO with a reason. The reason is the single most valuable field
+// the review feature produces, so a backup that could not carry it would be a backup
+// of everything except the part that matters.
+const letGo = idea({
+	_id: 'i3',
+	seq: 3,
+	title: 'Standalone notes sync',
+	status: 'parked',
+	archived: true,
+	letGoAt: Date.parse('2026-04-01T09:00:00Z'),
+	letGoReason: 'No demand — nobody asked for it twice'
+});
+
 // ---------------------------------------------------------------------------
 // 1. THE JSON BACKUP IS LOSSLESS. Anything dropped here is data the user cannot get back.
 // ---------------------------------------------------------------------------
 {
-	const backup = JSON.parse(toBackupJson([full, archived]));
+	const backup = JSON.parse(toBackupJson([full, archived, letGo]));
 	assert.equal(backup.format, 'thinklot-export');
 	assert.equal(backup.version, 1, 'a format without a version is a backup nobody can restore from');
-	assert.equal(backup.ideaCount, 2);
+	assert.equal(backup.ideaCount, 3);
 
 	// Every field of the input survives, field for field.
 	for (const key of Object.keys(full) as (keyof PortableIdea)[]) {
@@ -79,11 +93,11 @@ const archived = idea({ _id: 'i2', seq: 2, title: 'Old sync idea', status: 'done
 // ---------------------------------------------------------------------------
 {
 	// Export to JSON, import the JSON back, compare.
-	const json = toBackupJson([full, archived]);
-	const reparsed = JSON.parse(json);
+
+	const reparsed = JSON.parse(toBackupJson([full, archived, letGo]));
 	const round: PortableIdea[] = reparsed.ideas;
-	assert.equal(round.length, 2);
-	for (const original of [full, archived]) {
+	assert.equal(round.length, 3);
+	for (const original of [full, archived, letGo]) {
 		const found = round.find((i) => i._id === original._id)!;
 		assert.ok(found, 'an idea vanished across a round trip');
 		for (const key of Object.keys(original) as (keyof PortableIdea)[]) {
@@ -314,4 +328,84 @@ Trailing text.`;
 	assert.ok(!/Infinity|NaN/.test(zero), 'a zero effort must not leak Infinity into the export');
 }
 
-console.log('PASS: exports are lossless backups, imports refuse to guess, and a round trip neither loses nor invents an idea (no database operations).');
+// ---------------------------------------------------------------------------
+// 9. A BACKUP ROUND-TRIPS THROUGH ITS OWN IMPORT. This is the test that was missing.
+//
+// Exported and imported are DIFFERENT contracts: the export is a full document and the
+// import endpoint accepts a writing form. Passing the export's own fields straight
+// through fails with "Object contains extra field _id" - which is exactly what
+// happened, and it made the obvious export-then-import round trip fail outright.
+// ---------------------------------------------------------------------------
+{
+	// An export row is a full document: _id, seq, status, tasks and all.
+	const exported = toBackupJson([full, archived, letGo]);
+	const parsed = JSON.parse(exported) as { ideas: PortableIdea[] };
+	assert.ok(parsed.ideas[0]._id, 'a backup row carries its _id');
+	assert.ok(Array.isArray(parsed.ideas[0].tasks), 'and its checklist');
+
+	// Projected into the writing form, the document-only fields are GONE - the server
+	// would reject `_id`, and re-using a foreign id is meaningless.
+	const entries = parsed.ideas.map(backupToImportEntry).filter((e) => e !== null);
+	assert.equal(entries.length, 3);
+	for (const entry of entries) {
+		assert.equal('_id' in entry, false, 'no _id survives the projection');
+		assert.equal('seq' in entry, false, 'no seq survives it');
+		assert.equal('status' in entry, false, 'and no status - a restored idea is not pre-judged');
+		assert.equal('tasks' in entry, false, 'and no tasks - the import contract does not take them');
+		assert.ok(entry.title.length > 0, 'but the title does');
+	}
+
+	// Every field the import CAN restore is carried.
+	const active = entries.find((e) => e.title === 'Cancellation waitlist')!;
+	assert.equal(active.problem, full.problem);
+	assert.equal(active.audience, full.audience);
+	assert.equal(active.outcome, full.outcome);
+	assert.equal(active.trigger, full.trigger);
+	assert.equal(active.transcript, full.transcript, 'the verbatim dictation survives');
+	assert.deepEqual(active.tags, full.tags);
+
+	// The abandonment decision survives a round trip - which is the whole point of
+	// carrying letGoAt at all. A backup of a let-go idea restores it let-go, WITH its
+	// reason, while a foreign import cannot create one.
+	const restored = entryWithReason(parsed.ideas);
+	assert.ok(restored, 'a let-go row projects to a decision');
+	assert.equal(restored.letGoReason, 'No demand — nobody asked for it twice');
+	assert.ok(typeof restored.letGoAt === 'number');
+	assert.equal(restored.archived, undefined, 'but `archived` is re-derived server-side, not carried');
+}
+
+// A row with a let-go decision, projected.
+function entryWithReason(ideas: PortableIdea[]) {
+	for (const idea of ideas) {
+		if (!idea.letGoAt) continue;
+		return backupToImportEntry(idea);
+	}
+	return null;
+}
+
+// A FOREIGN import has no letGoAt, so it must not fabricate a decision.
+{
+	const foreign = backupToImportEntry({
+		_id: 'x',
+		seq: 1,
+		title: 'From Obsidian',
+		status: 'inbox',
+		tags: [],
+		favorite: false,
+		archived: false,
+		createdAt: Date.now(),
+		updatedAt: Date.now()
+	});
+	assert.equal(foreign?.letGoAt, undefined, 'a foreign import carries no decision');
+	assert.equal(foreign?.letGoReason, undefined, 'and so cannot invent one');
+	assert.equal(foreign?.archived, undefined);
+}
+
+// An untitled row is REFUSED with a reason, not silently dropped.
+{
+	const ideas = [{ _id: 'x', title: '', seq: 1, status: 'inbox', tags: [], favorite: false, archived: false, createdAt: 0, updatedAt: 0 }];
+	const mapped = ideas.map(backupToImportEntry).filter((e) => e !== null);
+	assert.equal(mapped.length, 0);
+}
+
+console.log('PASS: exports are lossless backups, a backup round-trips through its own import, and neither direction loses an idea (no database operations).');

@@ -70,6 +70,7 @@ export {
   exportFilename,
   parseMarkdownImport,
   parseCsvImport,
+  backupToImportEntry,
   findImportDuplicates,
   partitionForImport,
 } from "../../../../src/lib/portability";

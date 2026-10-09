@@ -53,6 +53,11 @@ export type PortableIdea = {
 	revisitAt?: number;
 	createdAt: number;
 	updatedAt: number;
+	/** How the text arrived. Kept so a backup can tell dictated from typed. */
+	source?: string;
+	/** When the user let it go, and why. The reason is the point of the field. */
+	letGoAt?: number;
+	letGoReason?: string;
 	/** Checklist rows, because an export that forgets them is not a backup. */
 	tasks?: { title: string; completed: boolean }[];
 };
@@ -291,6 +296,59 @@ export function exportFilename(kind: 'markdown' | 'csv' | 'json', at = Date.now(
 	return `thinklot-${stamp}.${extension}`;
 }
 
+/**
+ * A backup, back into the shape the import endpoint accepts.
+ *
+ * ## Why this exists
+ *
+ * Exported and imported are DIFFERENT contracts, and the gap was invisible until
+ * someone tried the obvious thing: export your lot, then import that file again. It
+ * fails with `Object contains extra field "_id" that is not in the validator`, because
+ * the export is a full document - `_id`, `seq`, `status`, `tasks`, `favorite`,
+ * `createdAt` - and the import endpoint accepts a writing form. Both clients had their
+ * own copy of the mapping and neither projected.
+ *
+ * So the mapping lives here, once, and both clients use it. The two responsibilities:
+ *
+ * 1. **Drop every field the import does not accept.** Not `_id`, not `seq`, not
+ *    `status`, not `tasks`. Sending an `_id` would also be asking the server to reuse
+ *    an id from a different account, which is meaningless.
+ * 2. **Preserve the fields the import endpoint restores** - including `letGoAt` and
+ *    `letGoReason`, which is how a restored idea keeps the reason that made it
+ *    archived, while a foreign import cannot invent one.
+ *
+ * Returns `null` for an entry that is not a backup of a known shape, so a caller can
+ * report it rather than silently dropping a whole idea.
+ */
+export function backupToImportEntry(idea: PortableIdea): ImportCandidate | null {
+	const title = typeof idea.title === 'string' ? idea.title.trim() : '';
+	if (!title) return null;
+
+	return {
+		title: title.slice(0, 300),
+		...(idea.description ? { description: String(idea.description) } : {}),
+		...(idea.problem ? { problem: String(idea.problem) } : {}),
+		...(idea.audience ? { audience: String(idea.audience) } : {}),
+		...(idea.outcome ? { outcome: String(idea.outcome) } : {}),
+		...(idea.trigger ? { trigger: String(idea.trigger) } : {}),
+		...(idea.transcript ? { transcript: String(idea.transcript) } : {}),
+		...(Array.isArray(idea.tags) ? { tags: idea.tags.map(String) } : { tags: [] }),
+		/**
+		 * The abandonment decision, carried as data rather than re-derived.
+		 *
+		 * `_id`/`seq`/`status`/`tasks` are deliberately absent: the server re-issues a
+		 * plate and re-derives the status, and an import must not re-use a foreign id.
+		 */
+		...(typeof idea.letGoAt === 'number' && idea.letGoAt > 0
+			? {
+					letGoAt: idea.letGoAt,
+					...(idea.letGoReason ? { letGoReason: String(idea.letGoReason) } : {})
+				}
+			: {}),
+		...(typeof idea.revisitAt === 'number' && idea.revisitAt > 0 ? { revisitAt: idea.revisitAt } : {})
+	};
+}
+
 // ---------------------------------------------------------------------------
 // IMPORT
 // ---------------------------------------------------------------------------
@@ -305,6 +363,14 @@ export type ImportCandidate = {
 	tags: string[];
 	/** Kept so a dictated import can be re-parsed rather than flattened. */
 	transcript?: string;
+	/**
+	 * Fields a BACKUP restores, which a foreign import never carries. They are what
+	 * lets a restored idea keep its abandonment reason while an import of 300 Obsidian
+	 * notes cannot invent one.
+	 */
+	revisitAt?: number;
+	letGoAt?: number;
+	letGoReason?: string;
 };
 
 export type ImportResult = {
