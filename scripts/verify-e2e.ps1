@@ -166,6 +166,38 @@ $null = Call 'ideas:setArchived' (@{ideaId=$aId; archived=$false; statusBeforeAr
 $restored = (Call 'ideas:get' (@{ideaId=$aId} | ConvertTo-Json -Compress) $tokenA).value.idea
 Check "restoring returns it to its previous stage" ($restored.status -eq 'reviewing') "-> status=$($restored.status)"
 
+
+# The journey the old test masked: a client reads the row WHILE ARCHIVED, so the only
+# status it can send back is `parked` - which setArchived itself wrote. Every restore
+# therefore returned the idea to `parked` and the true stage was gone for good.
+# The old test passed because it sent the true prior stage BY HAND.
+$journeyId = (Call 'ideas:capture' (@{ title='restore journey, no hint' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$null = Call 'ideas:setStatus' (@{ ideaId=$journeyId; status='building' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'review:decide' (@{ ideaId=$journeyId; outcome='letGo'; reason='journey probe' } | ConvertTo-Json -Depth 6 -Compress) $tokenA 'mutation'
+$archivedRow = (Call 'ideas:get' (@{ ideaId=$journeyId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "a let-go idea is parked while away" ($archivedRow.status -eq 'parked') "-> status=$($archivedRow.status)"
+
+# Restore WITHOUT sending any statusBack - exactly what a client that only knows the
+# archived row can do.
+$noHint = Call 'ideas:setArchived' (@{ ideaId=$journeyId; archived=$false } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "a restore with no hint is accepted" ($noHint.status -eq 'success') "-> $($noHint.errorMessage)"
+$restoredNoHint = (Call 'ideas:get' (@{ ideaId=$journeyId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "and it comes back to its REAL stage, not parked" ($restoredNoHint.status -eq 'building') "-> status=$($restoredNoHint.status)"
+
+# The client sending a bogus hint must not override what the server remembered.
+$bogus = Call 'ideas:setArchived' (@{ ideaId=$journeyId; archived=$true } | ConvertTo-Json -Compress) $tokenA 'mutation'
+Check "re-archiving is accepted" ($bogus.status -eq 'success') "-> $($bogus.errorMessage)"
+$bogusRestore = Call 'ideas:setArchived' (@{ ideaId=$journeyId; archived=$false; statusBeforeArchive='inbox' } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$afterBogus = (Call 'ideas:get' (@{ ideaId=$journeyId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "a client's wrong hint does not overwrite the remembered stage" ($afterBogus.status -eq 'building') "-> status=$($afterBogus.status)"
+
+# Committing to an idea forgets the held stage: it is back in active work, not returning.
+$tryAgain = Call 'review:decide' (@{ ideaId=$journeyId; outcome='try'; inDays=7 } | ConvertTo-Json -Depth 6 -Compress) $tokenA 'mutation'
+Check "committing to a restored idea is accepted" ($tryAgain.status -eq 'success') "-> $($tryAgain.errorMessage)"
+$triedAgain = (Call 'ideas:get' (@{ ideaId=$journeyId } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "and the held stage is forgotten, not silently retained" ($null -eq $triedAgain.statusBeforeArchive) "-> statusBeforeArchive=$($triedAgain.statusBeforeArchive)"
+Check "committing puts it in ready" ($triedAgain.status -eq 'ready') "-> status=$($triedAgain.status)"
+
 Write-Host "`n== 9. revisitAt validation ==" -ForegroundColor Cyan
 # revisitAt had no validation while every sibling numeric field was range-checked,
 # so -1e308, 1e308 and 0.5 all persisted into an indexed field.

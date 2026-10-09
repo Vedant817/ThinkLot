@@ -278,6 +278,20 @@ export const decide = mutation({
 			patch.letGoAt = undefined;
 			patch.letGoReason = undefined;
 		}
+		/*
+		 * `statusBeforeArchive: 'keep'` is not a status - it is the pure module
+		 * saying "record whatever stage this idea is at now", which only the
+		 * database copy can answer. Substituted here, server-side.
+		 */
+		if (patch.statusBeforeArchive === 'keep') {
+			patch.statusBeforeArchive =
+				idea.status === 'parked' ? (idea.statusBeforeArchive ?? undefined) : idea.status;
+		}
+		if (clearLetGo) {
+			// Trying or parking an idea forgets the abandonment, and with it the stage
+			// that was put on hold - the idea is back in active work, not returning.
+			patch.statusBeforeArchive = undefined;
+		}
 		patch.updatedAt = at;
 
 		await ctx.db.patch(args.ideaId, patch as never);

@@ -142,6 +142,24 @@ const schema = defineSchema({
 		revisitAt: v.optional(v.number()),
 
 		/**
+		 * The stage this idea is at, for when it comes back.
+		 *
+		 * `setArchived` parks an idea while it is away - that is what the archive IS -
+		 * and restoring needs to put it back where it was. The first version asked the
+		 * CLIENT to send that back, which cannot work: the client reads the row while
+		 * it is archived, so the status it has is `parked`, and every restore
+		 * therefore returned the idea to `parked` rather than to `ready` or
+		 * `building`. The e2e test passed because it sent the true prior stage by
+		 * hand; the real client never could.
+		 *
+		 * So the server records it at archive time. A client that sends a stage is
+		 * still honoured, but only when there is nothing stored - which is how an
+		 * idea archived before this field existed can be restored to what the user
+		 * knows it was.
+		 */
+		statusBeforeArchive: v.optional(ideaStatus),
+
+		/**
 		 * Why the user let this go, recorded at the moment they decided.
 		 *
 		 * The problem this solves: "archive" means three different things - finished,

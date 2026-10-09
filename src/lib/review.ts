@@ -153,6 +153,15 @@ export type DecisionEffect = {
 	 */
 	clearLetGo?: boolean;
 	revisitAt?: number | null;
+	/**
+	 * Record the stage this idea is at now, so a restore can put it back.
+	 *
+	 * The literal `'keep'` is a REQUEST, not a status: the pure module cannot see the
+	 * stored document, so it asks the server to fill it in from the row it has. A
+	 * real stage string means "use this one", which is how a restore from a backup
+	 * can reinstate a stage the backup recorded.
+	 */
+	statusBeforeArchive?: 'keep';
 	/** A sentence for the timeline, so the history explains itself. */
 	narrative: string;
 };
@@ -185,9 +194,21 @@ export function effectOf(decision: Decision, now: number): DecisionEffect {
 				// Archived so it leaves the working surfaces, and KEPT. The reason is
 				// what makes that archive readable rather than a graveyard.
 				archived: true,
+				/*
+				 * Parked while away, the same way `ideas:setArchived` parks.
+				 *
+				 * Without this, an idea the user let go from `building` kept reading
+				 * as `building` in the archive while a manually-archived one read as
+				 * `parked` - two different descriptions of the same fact, and the one
+				 * that mattered (the stage) was only in `statusBeforeArchive`. The
+				 * stage is still remembered and restored; this just makes the archived
+				 * row read the same way whichever door it came through.
+				 */
+				status: 'parked',
 				letGoAt: now,
 				letGoReason: reason,
 				revisitAt: null,
+				statusBeforeArchive: 'keep',
 				narrative: `let go: ${reason}`
 			};
 

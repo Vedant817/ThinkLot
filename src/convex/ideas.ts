@@ -762,9 +762,29 @@ export const setArchived = mutation({
 			throw new ValidationError('That idea no longer exists.');
 		}
 
+		/*
+		 * The stage is REMEMBERED by the server, not requested from the client.
+		 *
+		 * The previous version wrote `status: 'parked'` on archive and then read
+		 * `statusBeforeArchive` from the argument on restore - which the client
+		 * filled from the row it was looking at, whose status is by then `parked`.
+		 * So every restore returned the idea to `parked`, and the e2e test that
+		 * covered this passed only because it sent the true stage by hand. That is
+		 * a test that proved the endpoint works while the journey was broken.
+		 *
+		 * The client's argument is still honoured, but only when nothing is stored:
+		 * that is how an idea archived before this column existed can be restored
+		 * to what the user knows it was, and it keeps the endpoint backwards
+		 * compatible.
+		 */
+		const remembered = idea.statusBeforeArchive;
+
 		await ctx.db.patch(args.ideaId, {
 			archived: args.archived,
-			status: args.archived ? 'parked' : (args.statusBeforeArchive ?? 'inbox'),
+			status: args.archived ? 'parked' : (remembered ?? args.statusBeforeArchive ?? 'inbox'),
+			...(args.archived
+				? { statusBeforeArchive: idea.status === 'parked' ? (remembered ?? undefined) : idea.status }
+				: { statusBeforeArchive: undefined }),
 			updatedAt: nowMs()
 		});
 
