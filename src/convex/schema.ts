@@ -239,7 +239,16 @@ const schema = defineSchema({
 		createdAt: v.number()
 	})
 		.index('by_idea', ['ideaId'])
-		.index('by_user_idea', ['userId', 'ideaId']),
+		.index('by_user_idea', ['userId', 'ideaId'])
+		/*
+		 * Count a user's tasks without touching their ideas.
+		 *
+		 * `by_user_idea` answers "tasks of this idea", not "tasks of this user",
+		 * so task follow-through analytics would need one read per idea. A plain
+		 * `by_user` index makes the stats query count tasks in one bounded read.
+		 * New index, no migration: it builds from existing rows on deploy.
+		 */
+		.index('by_user', ['userId']),
 
 	/**
 	 * Append-only activity log per idea. Backs the idea timeline (backlog item)
@@ -254,7 +263,87 @@ const schema = defineSchema({
 		createdAt: v.number()
 	})
 		.index('by_idea', ['ideaId'])
-		.index('by_user_created', ['userId', 'createdAt'])
+		.index('by_user_created', ['userId', 'createdAt']),
+
+	/**
+	 * One row per user who opted out of product telemetry.
+	 *
+	 * Opt-out, not opt-in: the heartbeat carries only counts and enums (platform,
+	 * day, whether an AI key is configured) — no content, no PII — and the honest
+	 * default for a solo builder's product metrics is on with a visible off switch.
+	 * Presence of a row means "do not track"; absence means track. The heartbeat
+	 * checks this table first and no-ops when a row exists, and the rollup cron
+	 * excludes opted-out users from heartbeat-derived counts.
+	 */
+	telemetryPrefs: defineTable({
+		userId: v.id('users')
+	}).index('by_user', ['userId']),
+
+	/**
+	 * One heartbeat per user per day, upserted by the client (web + mobile).
+	 *
+	 * This is the ONLY per-user analytics write, and it exists because derivation
+	 * cannot answer "opened the app but changed nothing": event tables only record
+	 * actions. One row per user-day, rewritten idempotently, pruned past 90 days
+	 * by the rollup cron. Fields are enums and a boolean — platform, coarse day,
+	 * whether any AI key is configured. Never a key, a prompt, a model id, an
+	 * email, an IP, or anything the user typed.
+	 */
+	clientHeartbeats: defineTable({
+		userId: v.id('users'),
+		day: v.string(),
+		platform: v.union(v.literal('web'), v.literal('android'), v.literal('ios')),
+		aiConfigured: v.boolean()
+	})
+		.index('by_user_day', ['userId', 'day'])
+		/*
+		 * The rollup reads "everyone who checked in on day X". Without this it
+		 * would scan the whole table (up to 90 days × users); with it, one bounded
+		 * range read.
+		 */
+		.index('by_day', ['day']),
+
+	/**
+	 * One precomputed row per day for the owner dashboard. Written ONLY by the
+	 * rollup cron, read by the env-gated owner query. Never per-user rows, never
+	 * content: counts, percentages-as-counts, and small enums. A year of history
+	 * is 365 small rows, so the dashboard loads in O(1).
+	 */
+	dailyOwnerStats: defineTable({
+		day: v.string(),
+		computedAt: v.number(),
+		verified: v.boolean(),
+		newUsers: v.number(),
+		dau: v.number(),
+		wau: v.number(),
+		mau: v.number(),
+		activatedCapture24h: v.number(),
+		activatedScored7d: v.number(),
+		retD1: v.number(),
+		retD7: v.number(),
+		retD30: v.number(),
+		captures: v.number(),
+		capturesPerDau: v.number(),
+		scoredIdeasPct: v.number(),
+		favUsersPct: v.number(),
+		snoozeUsersPct: v.number(),
+		letGoUsersPct: v.number(),
+		taskUsersPct: v.number(),
+		dictatedPct: v.number(),
+		archivedPct: v.number(),
+		aiSetupPct: v.number(),
+		platformWeb: v.number(),
+		platformAndroid: v.number(),
+		platformIos: v.number(),
+		statusInbox: v.number(),
+		statusParked: v.number(),
+		statusReviewing: v.number(),
+		statusReady: v.number(),
+		statusBuilding: v.number(),
+		statusDone: v.number(),
+		reminderReturnPct: v.number(),
+		authFailures: v.number()
+	}).index('by_day', ['day'])
 });
 
 export default schema;

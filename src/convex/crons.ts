@@ -51,4 +51,21 @@ crons.interval(
 	{}
 );
 
+/**
+ * Owner analytics rollup, once a day at 08:00 UTC - an hour after the reminder
+ * cron, so reminder-driven activity from the morning batch lands in the same
+ * day's numbers rather than splitting the cause from the effect.
+ *
+ * One row per day, written by `owner:rollupDay`. Idempotent (same day rewrites
+ * the same row), so a retry or a second schedule cannot double-count. No 6-hour
+ * safety net here: a missed analytics day is a visible gap, which is honest,
+ * while a silent re-run that double-writes would be neither.
+ */
+crons.cron(
+	'roll up owner analytics',
+	'0 8 * * *',
+	internal.owner.rollupDay,
+	{}
+);
+
 export default crons;

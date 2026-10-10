@@ -132,6 +132,10 @@ type IdeaSummary = {
 	 * made - and the reason is the one thing that cannot be reconstructed weeks later.
 	 */
 	letGoReason?: string;
+	/** When it was let go. Conditional, like the reason - see `toSummary`. */
+	letGoAt?: number;
+	/** Whether a verbatim transcript exists. Conditional boolean, never the text. */
+	hasTranscript?: boolean;
 };
 
 function toSummary(idea: Doc<'ideas'>): IdeaSummary {
@@ -164,6 +168,18 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 		 * read was, in practice, a reason nobody read.
 		 */
 		...(idea.letGoReason ? { letGoReason: idea.letGoReason } : {}),
+		/**
+		 * When it was let go + whether a transcript exists, on the same conditional
+		 * basis as `trigger` and `letGoReason`.
+		 *
+		 * Analytics counts ("finished vs let go", "verbatim kept") need these without
+		 * fetching full documents. Timestamps and booleans are near-free, and both
+		 * are absent in the common case - never-let-go, never-dictated - so the list
+		 * response barely grows. The transcript TEXT never rides along: that would
+		 * multiply response bytes for content only a voice-quality boolean needs.
+		 */
+		...(idea.letGoAt !== undefined ? { letGoAt: idea.letGoAt } : {}),
+		...(idea.transcript ? { hasTranscript: true } : {}),
 		/**
 		 * How many of the three core questions are answered - carried as a COUNT, not
 		 * the text.
@@ -948,7 +964,28 @@ export const stats = query({
 			unscored: active.filter(
 				(idea) => idea.impact === undefined || idea.effort === undefined || idea.confidence === undefined
 			).length,
-			favorites: active.filter((idea) => idea.favorite).length
+			favorites: active.filter((idea) => idea.favorite).length,
+			/**
+			 * Checklist totals, counted in one bounded read off the `by_user` index.
+			 *
+			 * Task follow-through analytics needs these without fetching every idea's
+			 * tasks. The index exists for exactly this; without it the count would be
+			 * one read per idea.
+			 */
+			...(await taskTotals(ctx, userId))
 		};
 	}
 });
+
+/** { tasksTotal, tasksDone } for one user, via the `by_user` task index. */
+async function taskTotals(ctx: QueryCtx, userId: Id<'users'>) {
+	const tasks = await ctx.db
+		.query('ideaTasks')
+		.withIndex('by_user', (q) => q.eq('userId', userId))
+		.take(2000);
+	return {
+		tasksTotal: tasks.length,
+		tasksDone: tasks.filter((t) => t.completed).length,
+		tasksTruncated: tasks.length >= 2000
+	};
+}

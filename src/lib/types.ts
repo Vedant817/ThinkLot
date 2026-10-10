@@ -37,6 +37,22 @@ export type Idea = {
 	 */
 	letGoReason?: string;
 	/**
+	 * When this idea was let go, supplied by the list query when set.
+	 *
+	 * Conditional like `letGoReason`: analytics needs "finished vs let go" counts
+	 * without fetching every idea, and a timestamp is a few bytes. Absent for
+	 * ideas never let go, so the common case costs nothing.
+	 */
+	letGoAt?: number;
+	/**
+	 * Whether a verbatim transcript was kept, without shipping it.
+	 *
+	 * The list must never carry transcript text (up to 20 KB of dictated speech
+	 * per idea), but the voice-quality metric needs to know it exists. A boolean
+	 * answers "your words were kept" for zero bytes in the common typed case.
+	 */
+	hasTranscript?: boolean;
+	/**
 	 * How many of `problem` / `audience` / `outcome` are answered (0-3).
 	 *
 	 * The list omits all three - they are long free text and the list is capped - so
