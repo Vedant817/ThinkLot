@@ -144,10 +144,11 @@ behind the ones that do not.
       every unmapped column is reported in its original casing rather than dropped.
       Verified offline (`verify:pm-import`) AND by driving a real Jira CSV through the
       web file input (checks 86-93).
-- [ ] **PM tool export** — the same persona wants ideas back OUT into the tools they
-      already use: a Notion-ready Markdown export exists, but a Jira/Linear-shaped CSV
-      with Summary / Status / Labels columns would let them push selected ideas into
-      a backlog ticket. Nothing built.
+- [~] **PM tool export** (product-manager persona) — `src/lib/export.ts`, pure and
+      tested (`verify:export`): Jira CSV (Summary/Status/Priority/Labels/Description),
+      Linear CSV, Obsidian frontmatter, Notion Markdown. Written to each tool's
+      DOCUMENTED import contract. **Not wired into either client's UI yet** — the
+      transfer page still offers only the three old buttons.
 - [ ] **Android: AI provider settings** - the web client has bring-your-own-key across
       eight providers. Not yet on mobile. Needs a keychain, not `sessionStorage`.
 - [ ] **iOS: spec fields `audience` / `outcome` / `trigger`** - `apps/ios/Sources/Models.swift`
