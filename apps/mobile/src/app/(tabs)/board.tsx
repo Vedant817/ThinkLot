@@ -26,6 +26,23 @@ export default function Board() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [dragging, setDragging] = useState(false);
+  /**
+   * The board's own viewport, measured rather than assumed.
+   *
+   * The column width used to be a hard-coded 300dp, on the reasoning that it showed
+   * "a full column plus a deliberate peek of the next one". On a 384dp-wide phone that
+   * is not true, and a real device proved it: the page's own 20dp side padding clips the
+   * scroll viewport to 344dp, so a 300dp column leaves a 28dp sliver for the second
+   * column. A card in that sliver has its `[Open][Move]` row laid out past the clip edge
+   * - the accessibility tree reported the Move button with an inverted bounds rect and no
+   * text child, the screenshot showed only "Open", and tapping its coordinates did
+   * nothing at all.
+   *
+   * 88% of the measured width leaves one dominant column with a real peek, and works on
+   * every screen size instead of the one this was tuned against by hand.
+   */
+  const [viewport, setViewport] = useState(0);
+  const columnWidth = viewport > 0 ? Math.round(viewport * 0.88) : 300;
   const columns = useRef<
     Partial<Record<(typeof IDEA_STATUSES)[number], View | null>>
   >({});
@@ -79,8 +96,21 @@ export default function Board() {
         <ScrollView
           horizontal
           scrollEnabled={!dragging}
+          onLayout={(event) => setViewport(event.nativeEvent.layout.width)}
           contentContainerStyle={{ gap: 16 }}
           showsHorizontalScrollIndicator
+          /*
+           * Snap to a column boundary.
+           *
+           * Without this the scroll rests wherever the fling ends, and on a phone that
+           * routinely parks a card's action row outside the clipped viewport - which is
+           * the defect that made the board's Move control unreachable on a real device.
+           * `decelerationRate="fast"` is required for `snapToInterval` to take effect on
+           * Android.
+           */
+          decelerationRate="fast"
+          snapToInterval={columnWidth + 16}
+          disableIntervalMomentum
         >
           <>
             {IDEA_STATUSES.map((stage) => (
@@ -90,11 +120,10 @@ export default function Board() {
                   columns.current[stage] = view;
                 }}
                 style={{
-                  // 270dp showed one and a half columns and clipped the second
-                  // column's count mid-word, which reads as broken rather than
-                  // scrollable. 300dp shows a full column plus a deliberate peek
-                  // of the next one - the standard cue that there is more.
-                  width: 300,
+                  // Derives from the measured viewport rather than a hard-coded 300dp.
+                  // The constant was tuned against a wide phone and silently broke the
+                  // narrow one: see the `viewport` note above.
+                  width: columnWidth,
                   borderRadius: 8,
                   backgroundColor: c.panel,
                   borderWidth: 1,

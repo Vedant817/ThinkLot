@@ -193,6 +193,19 @@
 						{#if idea.preview}
 							<p class="mt-0.5 line-clamp-1 text-sm text-ink-2">{idea.preview}</p>
 						{/if}
+\t\t\t\t\t\t<!--
+\t\t\t\t\t\t\tThe reason this one was let go, on the row rather than behind a click.
+\t\t\t\t\t\t\tIt was stored from the first version and then rendered nowhere, so the
+\t\t\t\t\t\t\tarchive listed ideas the user had decided against with no visible
+\t\t\t\t\t\t\trecord of why. The reason is the one part that cannot be reconstructed
+\t\t\t\t\t\t\tlater, which is why the review screen demands it in the first place.
+\t\t\t\t\t\t-->
+						{#if idea.letGoReason}
+							<p class="mt-0.5 line-clamp-2 text-sm text-ink-3">
+								<span class="font-mono text-[10px] tracking-wider uppercase">let go because</span>
+								— {idea.letGoReason}
+							</p>
+						{/if}
 					</div>
 
 					<div class="flex shrink-0 items-center gap-2">

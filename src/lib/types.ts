@@ -28,6 +28,15 @@ export type Idea = {
 	 */
 	preview?: string;
 	/**
+	 * Why this idea was let go, supplied by the list query when there is one.
+	 *
+	 * Present on the phone and the web detail and archive views. It was collected from
+	 * the first version and then rendered nowhere, so the reason a user was required to
+	 * type when rejecting an idea was unreadable afterwards - which made the question
+	 * decorative.
+	 */
+	letGoReason?: string;
+	/**
 	 * How many of `problem` / `audience` / `outcome` are answered (0-3).
 	 *
 	 * The list omits all three - they are long free text and the list is capped - so

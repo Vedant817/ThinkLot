@@ -23,8 +23,6 @@
 	import { watchQuery, type QueryHandle } from '$lib/convex/query.svelte';
 	import QueryError from '$lib/components/QueryError.svelte';
 	import {
-		toNotionMarkdown,
-		toCsv,
 		toBackupJson,
 		exportFilename,
 		backupToImportEntry,
@@ -36,6 +34,7 @@
 		type ImportCandidate
 	} from '$lib/portability';
 	import { importFromPmSource } from '$lib/pm-import';
+	import { EXPORT_TARGETS, exportFor, type ExportTargetId } from '$lib/export';
 
 	type ExportPayload = {
 		ideas: PortableIdea[];
@@ -76,15 +75,35 @@
 		URL.revokeObjectURL(url);
 	}
 
-	function onExport(kind: 'markdown' | 'csv' | 'json') {
+	/**
+	 * Export to one of the named tools.
+	 *
+	 * Drives off `EXPORT_TARGETS` rather than a hand-rolled switch, so adding a
+	 * destination is one entry in `$lib/export` and cannot silently miss this page.
+	 * That is the whole reason the module exists: the buttons used to be written out
+	 * one by one here, and they drifted from what the export code actually produced.
+	 *
+	 * The JSON backup is deliberately NOT one of these targets. A backup is a different
+	 * contract - it is the lossless one, and it is what this app reads back. A target is
+	 * a deliberate conversion, usually a lossy one.
+	 */
+	function onExport(targetId: ExportTargetId) {
 		const data = payload;
 		if (!data) return;
-		const at = data.exportedAt;
-		if (kind === 'markdown') download(exportFilename('markdown', at), toNotionMarkdown(data.ideas, at), 'text/markdown');
-		else if (kind === 'csv') download(exportFilename('csv', at), toCsv(data.ideas), 'text/csv');
-		else download(exportFilename('json', at), toBackupJson(data.ideas, at), 'application/json');
+		const target = EXPORT_TARGETS.find((entry) => entry.id === targetId);
+		if (!target) return;
+		const doc = exportFor(targetId, data.ideas, data.exportedAt);
+		download(doc.filename, doc.contents, doc.mime);
 
-		exportNote = `Exported ${data.ideas.length} idea${data.ideas.length === 1 ? '' : 's'}.`;
+		exportNote = `Exported ${data.ideas.length} idea${data.ideas.length === 1 ? '' : 's'} for ${target.label}. ${target.howTo}`;
+	}
+
+	/** The lossless backup, kept as its own action rather than a target. */
+	function onBackup() {
+		const data = payload;
+		if (!data) return;
+		download(exportFilename('json', data.exportedAt), toBackupJson(data.ideas, data.exportedAt), 'application/json');
+		exportNote = `Backed up ${data.ideas.length} idea${data.ideas.length === 1 ? '' : 's'} — every field, archived ideas and checklists included.`;
 	}
 
 	// --- import ---------------------------------------------------------------------
@@ -252,33 +271,61 @@
 				</p>
 			{/if}
 
+			<!--
+				One button per target, generated from EXPORT_TARGETS.
+
+				These were three hand-written buttons before, and they had already drifted
+				from what the export code produced - the JSON one was labelled "CSV" in the
+				note text. Generating them means a new destination appears here without
+				anyone remembering to, and `target.howTo` travels with the button so the
+				user is told the exact import steps for the tool they picked.
+			-->
 			<div class="mt-3 flex flex-wrap gap-2">
+				{#each EXPORT_TARGETS as target (target.id)}
+					<button
+						type="button"
+						onclick={() => onExport(target.id)}
+						class="rounded-md border border-signal px-4 py-2 font-mono text-[11px] tracking-wider text-signal uppercase hover:bg-signal-soft"
+						title={`${target.destination} — ${target.howTo}`}
+					>
+						{target.label}
+					</button>
+				{/each}
+			</div>
+
+			<!--
+				The backup, separate from the targets on purpose. It is the lossless one,
+				and it is the file this app reads back on import. Everything above is a
+				conversion into somebody else's format.
+			-->
+			<div class="mt-3">
 				<button
 					type="button"
-					onclick={() => onExport('markdown')}
-					class="rounded-md border border-signal px-4 py-2 font-mono text-[11px] tracking-wider text-signal uppercase hover:bg-signal-soft"
-				>
-					Markdown for Notion
-				</button>
-				<button
-					type="button"
-					onclick={() => onExport('json')}
+					onclick={onBackup}
 					class="rounded-md border border-rule px-4 py-2 font-mono text-[11px] tracking-wider text-ink-2 uppercase hover:border-signal hover:text-signal"
 				>
 					JSON backup
 				</button>
-				<button
-					type="button"
-					onclick={() => onExport('csv')}
-					class="rounded-md border border-rule px-4 py-2 font-mono text-[11px] tracking-wider text-ink-2 uppercase hover:border-signal hover:text-signal"
-				>
-					CSV
-				</button>
 			</div>
-			<p class="mt-2 text-sm text-ink-3">
-				The JSON backup is the lossless one — every field, archived ideas and checklists
-				included.
-			</p>
+
+			<!--
+				Each target's import steps are listed too, not just in the tooltip. A
+				download that lands in a folder called "thinklot-jira-....csv" is not the
+				same as the user having the issues in their backlog, and saying so is the
+				difference between an export feature and a file-download button.
+			-->
+			<dl class="mt-4 space-y-2">
+				{#each EXPORT_TARGETS as target (target.id)}
+					<div class="flex flex-col gap-0.5 sm:flex-row sm:gap-2">
+						<dt class="font-mono text-[11px] tracking-wider text-ink-3 uppercase sm:w-28 sm:shrink-0">
+							{target.label}
+						</dt>
+						<dd class="text-sm text-ink-2">
+							<span class="text-ink-3">{target.destination}</span> — {target.howTo}
+						</dd>
+					</div>
+				{/each}
+			</dl>
 			{#if exportNote}
 				<p class="mt-2 text-sm text-good">{exportNote}</p>
 			{/if}

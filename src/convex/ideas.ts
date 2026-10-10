@@ -122,6 +122,16 @@ type IdeaSummary = {
 	createdAt: number;
 	updatedAt: number;
 	preview?: string;
+	/**
+	 * Why this idea was let go, carried so the archive row can show it.
+	 *
+	 * Conditional, for the same reason `trigger` is: a list response is capped and paid
+	 * for in bytes, and only a small minority of ideas are ever let go, so the common
+	 * case costs nothing here. The reason was stored from the start and then rendered
+	 * nowhere, which left the archive listing decisions with no record of why they were
+	 * made - and the reason is the one thing that cannot be reconstructed weeks later.
+	 */
+	letGoReason?: string;
 };
 
 function toSummary(idea: Doc<'ideas'>): IdeaSummary {
@@ -145,6 +155,15 @@ function toSummary(idea: Doc<'ideas'>): IdeaSummary {
 		 * response bytes for content only the detail page shows.
 		 */
 		...(idea.trigger ? { trigger: idea.trigger } : {}),
+		/**
+		 * The let-go reason, on the same conditional basis as `trigger`.
+		 *
+		 * It is one sentence and only present on ideas that were actively rejected, so
+		 * the common case is zero bytes. It is in the list rather than only in `get`
+		 * because the archive is a LIST - a reason that required opening every idea to
+		 * read was, in practice, a reason nobody read.
+		 */
+		...(idea.letGoReason ? { letGoReason: idea.letGoReason } : {}),
 		/**
 		 * How many of the three core questions are answered - carried as a COUNT, not
 		 * the text.

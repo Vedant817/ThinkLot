@@ -249,6 +249,17 @@ export function IdeaList({
               {item.title}
             </Text>
             {item.preview && <Note>{item.preview}</Note>}
+            {/*
+              Why an idea was let go, on the archive row rather than only behind a tap.
+
+              The web archive shows it; this one did not, so the phone and the browser
+              disagreed about whether a reason was readable. It is only ever rendered for
+              ideas that HAVE one, and the server only ships the field for those, so the
+              common case is free.
+            */}
+            {item.letGoReason ? (
+              <Note>let go because — {item.letGoReason}</Note>
+            ) : null}
             {item.tags.length > 0 && (
               <Note>{item.tags.map((tag) => `#${tag}`).join(" ")}</Note>
             )}

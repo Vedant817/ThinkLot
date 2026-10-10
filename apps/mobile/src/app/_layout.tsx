@@ -1,18 +1,15 @@
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
-import { ConvexReactClient, useConvexAuth } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useColorScheme } from "react-native";
 import { tokenStorage } from "../lib/auth";
 import { Heading, Note, Page, usePalette } from "../components/ui";
-import { ConnectionBanner, connectionStatus } from "../lib/connection";
+import { ConnectionBanner } from "../lib/connection";
+import { client } from "../lib/convex";
 
-const url = process.env.EXPO_PUBLIC_CONVEX_URL;
-const configured = !!url && /^https:\/\/[^/]+\.convex\.cloud\/?$/.test(url);
-const client = configured
-  ? new ConvexReactClient(url!, { unsavedChangesWarning: false })
-  : null;
+export { client };
 function Routes() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const c = usePalette();
@@ -32,36 +29,38 @@ function Routes() {
         <Stack.Screen name="idea/[id]" options={{ title: "Idea details" }} />
       </Stack.Protected>
       <Stack.Screen name="+not-found" options={{ title: "Page not found" }} />
-
-      {/*
-        The offline banner.
-
-        Mounted here, above every screen, because a transport failure is not a screen
-        problem: it applies to the whole app and must not be duplicated per-tab.
-
-        `client` is read at subscribe time rather than at render time - the Convex
-        client re-runs queries when its connection state turns over, so this is always
-        current without a timer. On the first connection the state is `idle`, and the
-        banner deliberately stays silent: "offline" during a cold start is a false
-        alarm.
-      */}
-      {client ? <ConnectionBanner status={connectionStatus(client)} /> : null}
     </Stack>
   );
 }
+/**
+ * The root, with the offline banner sitting over the navigator.
+ *
+ * The banner is a sibling of `Routes`, not a child of the `Stack` and not a declared
+ * screen. A `<Stack.Screen name="connection">` would never mount, because declaring a
+ * route does not focus it; a bare child of `Stack` is rejected with
+ * "Unknown child element passed to Stack", which is exactly what logcat showed on a
+ * real device before this was fixed.
+ *
+ * It is also outside the auth guard on purpose. The original bug was a device with no
+ * network sitting on "Connecting..." on the SIGN-IN screen - so the banner is most
+ * needed precisely where authentication has not succeeded.
+ */
 export default function RootLayout() {
   const dark = useColorScheme() === "dark";
   return (
     <SafeAreaProvider>
       <StatusBar style={dark ? "light" : "dark"} />
       {client ? (
-        <ConvexAuthProvider
-          client={client}
-          storage={tokenStorage}
-          shouldHandleCode={false}
-        >
-          <Routes />
-        </ConvexAuthProvider>
+        <>
+          <ConvexAuthProvider
+            client={client}
+            storage={tokenStorage}
+            shouldHandleCode={false}
+          >
+            <Routes />
+          </ConvexAuthProvider>
+          <ConnectionBanner />
+        </>
       ) : (
         <Page>
           <Heading title="Connect your lot" />

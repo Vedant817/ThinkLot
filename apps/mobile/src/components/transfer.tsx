@@ -5,11 +5,12 @@ import {
   api,
   importFromPmSource,
   exportFilename,
+  EXPORT_TARGETS,
+  exportFor,
+  type ExportTargetId,
   findImportDuplicates,
   partitionForImport,
   toBackupJson,
-  toCsv,
-  toNotionMarkdown,
   type ImportCandidate,
 } from "../lib/api";
 import { useLiveQuery } from "../lib/live-query";
@@ -54,27 +55,61 @@ export function Transfer() {
   } | null>(null);
 
   // --- export -------------------------------------------------------------------
-  const share = async (kind: "markdown" | "csv" | "json") => {
+  /**
+   * Export to one of the named tools, through the share sheet.
+   *
+   * Driven off `EXPORT_TARGETS` rather than a hand-rolled switch, exactly as on web.
+   * The three hard-coded buttons here were the same drift the web client had: they
+   * named only "Markdown (paste into Notion)", "JSON backup" and "CSV", so Jira,
+   * Linear and Obsidian - all of which `$lib/export` produces and all of which a PM
+   * actually uses - were unreachable from a phone at all.
+   *
+   * Using the shared table means a new destination appears on both clients by adding
+   * one entry, and `target.howTo` travels with the button so the user is told the
+   * exact import steps for the tool they picked.
+   */
+  const share = async (targetId: ExportTargetId) => {
+    if (!lot) return;
+    const target = EXPORT_TARGETS.find((entry) => entry.id === targetId);
+    if (!target) return;
+    setBusy(true);
+    setError(undefined);
+    setNote(undefined);
+    try {
+      const doc = exportFor(targetId, lot.ideas, lot.exportedAt);
+
+      const result = await Share.share({
+        title: doc.filename,
+        message: doc.contents,
+      });
+
+      setNote(
+        result.action === Share.sharedAction
+          ? `Shared ${lot.ideas.length} idea${lot.ideas.length === 1 ? "" : "s"} for ${target.label}. ${target.howTo}`
+          : "Export cancelled. Nothing left this device.",
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** The lossless backup, kept as its own action rather than a target. */
+  const backup = async () => {
     if (!lot) return;
     setBusy(true);
     setError(undefined);
     setNote(undefined);
     try {
-      const body =
-        kind === "markdown"
-          ? toNotionMarkdown(lot.ideas, lot.exportedAt)
-          : kind === "csv"
-            ? toCsv(lot.ideas)
-            : toBackupJson(lot.ideas, lot.exportedAt);
-
       const result = await Share.share({
-        title: exportFilename(kind, lot.exportedAt),
-        message: body,
+        title: exportFilename("json", lot.exportedAt),
+        message: toBackupJson(lot.ideas, lot.exportedAt),
       });
 
       setNote(
         result.action === Share.sharedAction
-          ? `Shared ${lot.ideas.length} idea${lot.ideas.length === 1 ? "" : "s"}.`
+          ? `Backed up ${lot.ideas.length} idea${lot.ideas.length === 1 ? "" : "s"} — every field, archived ideas and checklists included.`
           : "Export cancelled. Nothing left this device.",
       );
     } catch (e) {
@@ -183,22 +218,28 @@ export function Transfer() {
             <Failure message="This lot is larger than one export covers, so this is only part of it." />
           ) : null}
 
-          <Button
-            title={busy ? "Working…" : "Share as Markdown (paste into Notion)"}
-            primary
-            disabled={busy}
-            onPress={() => void share("markdown")}
-          />
-          <Button
-            title="Share as JSON backup"
-            disabled={busy}
-            onPress={() => void share("json")}
-          />
-          <Button
-            title="Share as CSV"
-            disabled={busy}
-            onPress={() => void share("csv")}
-          />
+          {/*
+            One button per target, generated from EXPORT_TARGETS.
+
+            These were three hand-written buttons, and they had the same drift the web
+            client had: Jira, Linear and Obsidian were unreachable from a phone even
+            though `$lib/export` produces them. Generating them means a new destination
+            appears on both clients at once, and `target.howTo` rides along so the user
+            is told where the import actually goes.
+          */}
+          {EXPORT_TARGETS.map((target) => (
+            <Button
+              key={target.id}
+              title={`Export for ${target.label}`}
+              primary
+              disabled={busy}
+              onPress={() => void share(target.id)}
+            />
+          ))}
+
+          {/* The backup, separate from the targets on purpose: it is the lossless one,
+              and the only file this app reads back. */}
+          <Button title="Share as JSON backup" disabled={busy} onPress={() => void backup()} />
           <Note>
             The JSON backup is the lossless one — every field, archived ideas and
             checklists included.

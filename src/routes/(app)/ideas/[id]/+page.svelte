@@ -393,6 +393,25 @@
 					{/if}
 				</div>
 
+				<!--
+					The sentence given when this idea was let go.
+
+					Until now it was required at decision time, written to the database,
+					and then rendered nowhere in either client - the review screen promises
+					"kept with your reason, not deleted", and the archive proceeded not to
+					show it. The one durable record of WHY an idea was rejected was
+					unreadable, which is the entire reason a reason was demanded.
+
+					Read-only, for the same reason as on the phone: a reason that can be
+					edited stops being a record of the decision that was made.
+				-->
+				{#if idea.letGoReason}
+					<p class="mt-3 rounded-md border border-rule bg-panel px-3 py-2 text-sm leading-6 text-ink-2">
+						<span class="font-mono text-[10px] tracking-wider text-ink-3 uppercase">let go because</span>
+						— {idea.letGoReason}
+					</p>
+				{/if}
+
 				<label class="mt-4 block">
 					<span class="sr-only">Title</span>
 					<textarea

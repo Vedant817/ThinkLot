@@ -88,4 +88,14 @@ export type {
  * two different answers for the same file.
  */
 export { importFromPmSource, PM_SOURCES } from '../../../../src/lib/pm-import';
+/**
+ * Export TARGETS, not just the formats.
+ *
+ * `$lib/export` is the per-tool contract - which columns each tool wants, what its
+ * import steps are, and what the file is called. `portability` is the lossless
+ * round-trip. Both clients need both, and `export` builds on `portability`, so it
+ * belongs in the same shared surface.
+ */
+export { EXPORT_TARGETS, exportFor } from '../../../../src/lib/export';
+export type { ExportTarget, ExportTargetId, ExportDoc } from '../../../../src/lib/export';
 export type { PmSource, Detection } from '../../../../src/lib/pm-import';

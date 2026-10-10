@@ -212,6 +212,21 @@ export default function IdeaDetail() {
               title={lotPlate(idea.seq)}
               subtitle={`${idea.status} · priority ${displayScore(priorityScore(idea))}`}
             />
+            {/*
+              The sentence given when this idea was let go.
+
+              For it to be required at decision time and then never displayed anywhere
+              was a real hole: the review screen promises "kept with your reason, not
+              deleted", the archive never shows it, and so the only durable record of
+              WHY an idea was rejected was unreadable - which is the whole reason a
+              reason was demanded in the first place.
+
+              Read-only on purpose. A reason describes the decision, not the idea, and a
+              field that can be edited later stops being a record of what was decided.
+            */}
+            {idea.letGoReason ? (
+              <Note>You let this go — “{idea.letGoReason}”</Note>
+            ) : null}
             <Failure message={error} />
             <Field
               label="Title"
