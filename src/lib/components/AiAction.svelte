@@ -15,7 +15,7 @@
 	 * No Convex involvement anywhere: the call goes from this component straight to the
 	 * provider the user configured.
 	 */
-	import { callModel, type AiFailure } from '$lib/ai/client';
+	import { callModel, type AiFailure, type AiResult } from '$lib/ai/client';
 	import { loadKey, loadConfig, type StorageMode } from '$lib/ai/credentials';
 	import { providerById, validateConfig, type Provider } from '$lib/ai/providers';
 	import type { ChatMessage } from '$lib/ai/adapters';
@@ -25,17 +25,30 @@
 		/** Plain sentence describing exactly what leaves the device. */
 		consent,
 		messages,
+		/**
+		 * Turn the model's raw text into what the user reads, or null when it is not
+		 * usable output.
+		 *
+		 * Required, not optional. The first version of this component had no such
+		 * prop: it awaited the call, discarded the result, and rendered nothing -
+		 * so pressing "Summarise" spent the user's money and showed them a button
+		 * going back to idle. A model call with nowhere to put its answer is a bug,
+		 * and the type system is where this one is prevented from recurring.
+		 */
+		parseResult,
 		/** Model calls can be slow. */
 		timeoutMs = 45_000
 	}: {
 		label: string;
 		consent: string;
 		messages: ChatMessage[];
+		parseResult: (raw: string) => string | null;
 		timeoutMs?: number;
 	} = $props();
 
 	let running = $state(false);
 	let error = $state<AiFailure | null>(null);
+	let result = $state<{ text: string; ms: number; model: string } | null>(null);
 
 	/** Read at click time rather than bound, so a key saved in another tab is picked up. */
 	function ready(): { provider: Provider; baseUrl: string; key: string; model: string } | null {
@@ -59,8 +72,22 @@
 		if (!config) return;
 		running = true;
 		error = null;
+		result = null;
 		try {
-			await callModel({ ...config, messages, timeoutMs });
+			const answer: AiResult = await callModel({ ...config, messages, timeoutMs });
+			const text = parseResult(answer.text);
+			if (text) {
+				result = { text, ms: answer.ms, model: answer.model };
+			} else {
+				// A 200 with unusable output is a failure with a different shape, not
+				// a success with nothing to show. Saying so is the difference between
+				// "the model said nothing useful" and a button that did nothing.
+				error = {
+					message: 'The model answered, but not in a form this check can use.',
+					hint: 'Try again — or try a different model. Short, literal answers work best here.',
+					likelyKeyProblem: false
+				} satisfies AiFailure;
+			}
 		} catch (caught) {
 			error = caught as AiFailure;
 		} finally {
@@ -96,5 +123,12 @@
 		{#if error.hint}
 			<p class="mt-1 text-ink-2">{error.hint}</p>
 		{/if}
+	</div>
+{/if}
+
+{#if result}
+	<div class="mt-3 rounded-md border border-rule bg-panel px-3 py-2 text-sm leading-6 text-ink" data-ai-result="true">
+		<p class="whitespace-pre-wrap">{result.text}</p>
+		<p class="mt-1 font-mono text-[11px] text-ink-3">{result.model} · {result.ms}ms</p>
 	</div>
 {/if}

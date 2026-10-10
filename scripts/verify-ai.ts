@@ -10,6 +10,7 @@
  * network broke. These checks exist so that regression is impossible to miss.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { prepare, extractText, extractErrorMessage, type ModelCall } from '../src/lib/ai/adapters';
 import { providerById, normaliseBaseUrl, validateConfig, PROVIDERS } from '../src/lib/ai/providers';
 import { describeFailure, describeHttpFailure } from '../src/lib/ai/client';
@@ -445,3 +446,48 @@ const call = (over: Partial<ModelCall> = {}): ModelCall => ({
 }
 
 console.log('PASS: three API shapes build correctly, every failure becomes a sentence, model output is validated, and only plausible pairs reach judgement.');
+
+// ---------------------------------------------------------------------------
+// The answer must be shown.
+//
+// The web action component once awaited the model call and discarded the result,
+// so "Summarise" spent the user's money and displayed nothing - and the suite
+// passed anyway, because it only asserted the panel's preconditions. These checks
+// assert the result path exists in both clients, so that regression is impossible
+// to miss the same way.
+{
+	const web = readFileSync('src/lib/components/AiAction.svelte', 'utf8');
+	assert.match(web, /parseResult/, 'web AiAction must take a result parser');
+	assert.match(web, /data-ai-result/, 'web AiAction must render the parsed answer');
+	assert.doesNotMatch(
+		web.replace(/parseResult\(answer\.text\)/g, ''),
+		/await callModel\(\{ \.\.\.config, messages, timeoutMs \}\);?\s*\n\s*} catch/,
+		'web AiAction must not discard the call result'
+	);
+
+	const ideaPage = readFileSync('src/routes/(app)/ideas/[id]/+page.svelte', 'utf8');
+	assert.match(ideaPage, /parseResult=\{\(raw\) => parseSummary/, 'Summarise must parse its answer');
+	assert.match(ideaPage, /parseDuplicatePairs\(raw, allowed\)/, 'duplicates must parse against the shortlist');
+
+	const mobile = readFileSync('apps/mobile/src/components/ai-action.tsx', 'utf8');
+	assert.match(mobile, /parseResult/, 'mobile AiAction must take a result parser');
+	assert.match(mobile, /setAnswer\(/, 'mobile AiAction must store the parsed answer');
+	assert.match(mobile, /router\.push\("\/ai-settings"\)/, 'mobile AiAction must link to settings when unconfigured');
+
+	const detail = readFileSync('apps/mobile/src/app/idea/[id].tsx', 'utf8');
+	assert.match(detail, /<AiAction/, 'the mobile idea screen must offer the AI action');
+	assert.match(detail, /parseSummary\(raw\)/, 'mobile Summarise must parse its answer');
+
+	const settingsRaw = readFileSync('apps/mobile/src/app/ai-settings.tsx', 'utf8');
+	// Comments name the browser stores to explain why they are not used; the test
+	// must read the code, not its own rationale.
+	const settings = settingsRaw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1');
+	assert.match(settings, /PROVIDERS/, 'settings must offer the shared provider registry');
+	assert.match(settings, /validateConfig\(/, 'settings must validate before testing');
+	assert.match(settings, /callModel\(/, 'settings must prove the setup with a real call');
+	assert.match(settings, /secureTextEntry/, 'the key field must not show the key');
+	assert.match(settings, /Alert\.alert/, 'destructive choices must confirm natively');
+	assert.doesNotMatch(settings, /localStorage|sessionStorage/, 'settings must not touch browser storage');
+}
+
+console.log('PASS: both clients show the model answer, and the phone has the full provider setup.');

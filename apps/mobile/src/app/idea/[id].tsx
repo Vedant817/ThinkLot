@@ -14,7 +14,12 @@ import {
   maturityLabel,
   describeEvent,
   relativeDay,
+  summariseMessages,
+  duplicateMessages,
+  parseSummary,
+  parseDuplicatePairs,
 } from "../../lib/api";
+import { AiAction } from "../../components/ai-action";
 import { useLiveQuery } from "../../lib/live-query";
 import { errorMessage } from "../../lib/auth";
 import { fields, textPatch, type TextFields } from "../../lib/edit-buffer";
@@ -44,6 +49,14 @@ export default function IdeaDetail() {
    */
   const related = query.data?.related ?? [];
   const events = query.data?.events ?? [];
+  /*
+   * The duplicate shortlist, same data the web panel judges. Computed server-side
+   * from rows already fetched for `related`, so the phone gets it without a second
+   * subscription or the lot shipped to the browser. Until the AI panel below, this
+   * screen ignored it too.
+   */
+  const duplicates: { _id: string; title?: string; tags?: string[]; preview?: string; reason?: string }[] =
+    query.data?.duplicates ?? [];
   /*
    * Maturity, computed ONCE, and from the checklist as well as the idea.
    *
@@ -531,6 +544,75 @@ export default function IdeaDetail() {
                       onPress={() => router.push(`/idea/${neighbour._id}`)}
                     />
                   ))}
+                </>
+              ) : null}
+
+              {/*
+                AI: summary and duplicate check, run on this phone against the
+                provider the user configured. Same two rules as web: nothing fires
+                until the button is pressed (a call costs money and sends words to
+                a third party), and the duplicates check judges the deterministic
+                shortlist only when there is one - never the whole lot.
+              */}
+              <Label>AI</Label>
+              <AiAction
+                label="Summarise"
+                consent="Sends this idea's title, problem, audience, outcome, trigger and tags."
+                messages={summariseMessages({
+                  title: idea.title ?? "",
+                  problem: idea.problem,
+                  audience: idea.audience,
+                  outcome: idea.outcome,
+                  trigger: idea.trigger,
+                  preview: idea.description?.slice(0, 600),
+                  tags: idea.tags ?? [],
+                })}
+                parseResult={(raw) => parseSummary(raw)?.summary ?? null}
+              />
+              {duplicates.length > 0 ? (
+                <>
+                  <AiAction
+                    label="Check for duplicates"
+                    consent={`Sends this idea plus ${duplicates.length} similar title${duplicates.length === 1 ? "" : "s"}.`}
+                    messages={duplicateMessages(
+                      {
+                        title: idea.title ?? "",
+                        problem: idea.problem,
+                        outcome: idea.outcome,
+                        tags: idea.tags ?? [],
+                      },
+                      duplicates.map((c) => ({
+                        id: String(c._id),
+                        title: c.title ?? "",
+                        preview: c.preview,
+                        tags: c.tags ?? [],
+                      })),
+                    )}
+                    parseResult={(raw) => {
+                      const allowed = new Set(duplicates.map((c) => String(c._id)));
+                      const pairs = parseDuplicatePairs(raw, allowed);
+                      if (!pairs) return null;
+                      if (pairs.length === 0)
+                        return "No duplicates — none of the shortlist proposes the same action.";
+                      const byId = new Map(duplicates.map((c) => [String(c._id), c.title ?? "An idea"]));
+                      return pairs
+                        .map(
+                          (p) =>
+                            `“${byId.get(p.id) ?? p.id}” looks like the same action (${p.confidence}): ${p.reason}`,
+                        )
+                        .join("\n");
+                    }}
+                  />
+                  {/*
+                    The shortlist is visible with the reason each was picked. A model
+                    verdict about an idea the user cannot see is one they cannot check.
+                  */}
+                  <Note>
+                    {duplicates.length} similar title{duplicates.length === 1 ? "" : "s"} to judge:{" "}
+                    {duplicates
+                      .map((c) => `${c.title ?? "An idea"}${c.reason ? ` — ${c.reason}` : ""}`)
+                      .join("; ")}
+                  </Note>
                 </>
               ) : null}
 

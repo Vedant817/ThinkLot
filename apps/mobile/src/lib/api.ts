@@ -99,3 +99,33 @@ export { importFromPmSource, PM_SOURCES } from '../../../../src/lib/pm-import';
 export { EXPORT_TARGETS, exportFor } from '../../../../src/lib/export';
 export type { ExportTarget, ExportTargetId, ExportDoc } from '../../../../src/lib/export';
 export type { PmSource, Detection } from '../../../../src/lib/pm-import';
+
+/*
+ * Bring-your-own AI, shared with the web client.
+ *
+ * `providers`, `adapters`, `client` and `prompts` are pure TypeScript plus `fetch` -
+ * no DOM anywhere - so the phone calls the same registry, the same validation, the
+ * same request builder and the same prompt builders as the browser. Only the
+ * credential store differs: web `credentials.ts` wraps localStorage/sessionStorage,
+ * which do not exist here, while `ai-credentials.ts` wraps the platform keychain.
+ * That module is imported directly (same directory), not re-exported from shared
+ * code, because it is platform-specific by design.
+ */
+export { PROVIDERS, providerById, validateConfig } from '../../../../src/lib/ai/providers';
+export type { Provider, ProviderId } from '../../../../src/lib/ai/providers';
+export { callModel, describeFailure } from '../../../../src/lib/ai/client';
+export type { AiFailure, AiResult } from '../../../../src/lib/ai/client';
+export type { ChatMessage, ModelCall } from '../../../../src/lib/ai/adapters';
+export {
+  summariseMessages,
+  duplicateMessages,
+  parseSummary,
+  parseDuplicatePairs,
+  parseModelJson,
+} from '../../../../src/lib/ai/prompts';
+export type {
+  IdeaForSummary,
+  SummaryResult,
+  CandidateForDuplicates,
+  DuplicatePair,
+} from '../../../../src/lib/ai/prompts';

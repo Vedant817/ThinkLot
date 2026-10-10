@@ -46,6 +46,16 @@ export default function Review() {
    */
   const [lettingGo, setLettingGo] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  /*
+   * Cards dismissed for this session via "Decide later".
+   *
+   * `skip` deliberately touches nothing server-side - a decision to leave something
+   * alone must not silently edit the thing being left alone - so the card would stay
+   * in the queue and the button would appear to do nothing. Hiding it for this
+   * session gives the decision visible meaning while the server records the event;
+   * next session it is back, which is exactly what "later" promises.
+   */
+  const [deferred, setDeferred] = useState<string[]>([]);
 
   /**
    * One decision, validated before it is sent.
@@ -78,6 +88,9 @@ export default function Review() {
         setLettingGo(null);
         setReason("");
       }
+      if (outcome === "skip") {
+        setDeferred((current) => (current.includes(id) ? current : [...current, id]));
+      }
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -96,11 +109,15 @@ export default function Review() {
       {query.data ? (
         <>
           <Note>
-            {query.data.items.length} shown of {query.data.total}
+            {query.data.items.filter((item) => !deferred.includes(item.id)).length} shown of{" "}
+            {query.data.total}
             {query.data.truncated ? " — more ideas need review" : ""}
+            {deferred.length > 0 ? ` · ${deferred.length} left for later` : ""}
           </Note>
           {query.data.items.length === 0 && <Note>Your review queue is clear.</Note>}
-          {query.data.items.map((item) => (
+          {query.data.items
+            .filter((item) => !deferred.includes(item.id))
+            .map((item) => (
             /* A card, not a wall of text. Each queue entry is one decision the user has
                to make, so it gets a surface and a border to read as a unit. */
             <Card key={item.id}>
@@ -190,16 +207,30 @@ export default function Review() {
                   </View>
                 </View>
               ) : (
-                <Button
-                  compact
-                  title="Let it go"
-                  disabled={busy}
-                  onPress={() => {
-                    setLettingGo(item.id);
-                    setReason("");
-                    setError(undefined);
-                  }}
-                />
+                <>
+                  {/*
+                    The fourth decision. "Decide later" records a skip on the server -
+                    which deliberately changes nothing about the idea - and hides the
+                    card for this session, so the button visibly does something while
+                    next session brings the idea back. That is what "later" means.
+                  */}
+                  <Button
+                    compact
+                    title="Decide later"
+                    disabled={busy}
+                    onPress={() => void act(item.id, "skip", 0)}
+                  />
+                  <Button
+                    compact
+                    title="Let it go"
+                    disabled={busy}
+                    onPress={() => {
+                      setLettingGo(item.id);
+                      setReason("");
+                      setError(undefined);
+                    }}
+                  />
+                </>
               )}
             </Card>
           ))}

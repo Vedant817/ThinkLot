@@ -93,8 +93,9 @@
 
 	const visible = $derived.by(() => {
 		const filter = reasonFilter;
-		if (filter === 'all') return items;
-		return items.filter((i) => i.reasons.includes(filter));
+		const live = items.filter((i) => !deferred.has(i.id));
+		if (filter === 'all') return live;
+		return live.filter((i) => i.reasons.includes(filter));
 	});
 
 	/** How many items carry each reason, for the filter chips. */
@@ -136,6 +137,25 @@
 		busyId = item.id;
 		await run(() => convex.mutation(api.review.decide, { ideaId: item.id, outcome: 'try', inDays: 7 }));
 		busyId = null;
+	}
+
+	/*
+	 * Rows hidden for this session via "Decide later".
+	 *
+	 * `skip` deliberately changes nothing server-side, so the row would stay put
+	 * and the button would look dead. Hiding it here gives the decision visible
+	 * meaning while the server records the event; next session it returns, which
+	 * is what "later" promises. A Set in state, cleared only by leaving the page.
+	 */
+	let deferred = $state<Set<string>>(new Set());
+
+	async function defer(item: Item) {
+		busyId = item.id;
+		await run(() => convex.mutation(api.review.decide, { ideaId: item.id, outcome: 'skip' }));
+		busyId = null;
+		if (!problem) {
+			deferred = new Set(deferred).add(item.id);
+		}
 	}
 
 	/**
@@ -312,10 +332,10 @@
 					</div>
 
 				<!--
-					The four decisions, each of which is a DECISION rather than a deferral.
-					Every one writes through Convex and the row disappears on its own via
-					the subscription, so there is no local state to keep in step with the
-					server.
+					The four decisions. Try, park and let-go remove the row via the
+					subscription; "Decide later" records a skip - which changes nothing
+					server-side by design - and hides the row for this session instead, so
+					the button visibly does something while next session brings it back.
 
 					Archive was replaced by Let it go because archive meant three
 					different things - finished, maybe later, and decided against - and none
@@ -347,6 +367,14 @@
 						class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
 					>
 						Park 30d
+					</button>
+					<button
+						type="button"
+						onclick={() => defer(item)}
+						disabled={busyId === item.id}
+						class="rounded border border-rule-strong px-2 py-1 font-mono text-[10px] tracking-wider text-ink-2 uppercase transition-colors hover:bg-sunk disabled:opacity-40"
+					>
+						Decide later
 					</button>
 					<button
 						type="button"

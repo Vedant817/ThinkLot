@@ -24,6 +24,7 @@
  * user who does not want the key surviving a restart has a real choice.
  */
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 
 const PREFIX = "thinklot.ai.v1.";
@@ -167,7 +168,67 @@ function getOptions(): SecureStore.SecureStoreOptions {
   };
 }
 
-/** A mask, never the key itself. */
+/**
+ * Which provider, model and endpoint the user picked. NOT secret - a model id and a
+ * base URL say nothing an attacker can spend - so it lives in AsyncStorage when
+ * remembered, next to the draft, rather than in the keychain with the key.
+ *
+ * The key and its config travel as a pair in the UI but split in storage on purpose:
+ * forgetting the key must never forget which provider it belonged to, and clearing
+ * the config must never be the only way to rotate a key.
+ */
+export type AiConfig = {
+  providerId: string;
+  baseUrl: string;
+  model: string;
+};
+
+const CONFIG_KEY = `${PREFIX}config`;
+const sessionConfigs = new Map<StorageMode, AiConfig>();
+
+export async function loadConfig(mode: StorageMode): Promise<AiConfig | null> {
+  if (mode === "session") return sessionConfigs.get(mode) ?? null;
+  try {
+    const raw = await AsyncStorage.getItem(CONFIG_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AiConfig>;
+    if (typeof parsed.providerId !== "string" || typeof parsed.model !== "string") return null;
+    return {
+      providerId: parsed.providerId,
+      baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "",
+      model: parsed.model,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveConfig(config: AiConfig, mode: StorageMode): Promise<void> {
+  if (mode === "session") {
+    sessionConfigs.set(mode, config);
+    return;
+  }
+  try {
+    sessionConfigs.delete(mode);
+    await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // A config that cannot be remembered degrades loudly at the call site, not
+    // silently into amnesia: the settings screen catches this and says so.
+    throw new Error("Could not remember these settings on this device.");
+  }
+}
+
+/** Forget keys AND configs, so "remove everything" means everything. */
+export async function forgetConfigs(): Promise<void> {
+  sessionConfigs.clear();
+  try {
+    await AsyncStorage.removeItem(CONFIG_KEY);
+  } catch {
+    /* Already gone is gone. */
+  }
+}
+
+/** A mask, never the key itself. Restored verbatim after an edit removed it. */
 export function maskKey(key: string): string {
   const trimmed = key.trim();
   if (!trimmed) return "";

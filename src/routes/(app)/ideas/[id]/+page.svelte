@@ -11,7 +11,12 @@
 	import { describeEvent } from '$lib/timeline';
 	import { relativeDay } from '$lib/dates';
 	import AiAction from '$lib/components/AiAction.svelte';
-	import { summariseMessages, duplicateMessages } from '$lib/ai/prompts';
+	import {
+		summariseMessages,
+		duplicateMessages,
+		parseSummary,
+		parseDuplicatePairs
+	} from '$lib/ai/prompts';
 
 	let { data } = $props();
 
@@ -473,6 +478,7 @@
 							preview: idea.description?.slice(0, 600),
 							tags: idea.tags ?? []
 						})}
+						parseResult={(raw) => parseSummary(raw)?.summary ?? null}
 					/>
 
 					{#if duplicateShortlist.length > 0}
@@ -493,6 +499,16 @@
 									tags: c.tags
 								}))
 							)}
+							parseResult={(raw) => {
+								const allowed = new Set(duplicateShortlist.map((c) => c._id));
+								const pairs = parseDuplicatePairs(raw, allowed);
+								if (!pairs) return null;
+								if (pairs.length === 0) return 'No duplicates — none of the shortlist proposes the same action.';
+								const byId = new Map(duplicateShortlist.map((c) => [c._id, c.title ?? 'An idea']));
+								return pairs
+									.map((p) => `“${byId.get(p.id) ?? p.id}” looks like the same action (${p.confidence}): ${p.reason}`)
+									.join('\n');
+							}}
 						/>
 
 						<!--

@@ -27,6 +27,7 @@ function Routes() {
       <Stack.Protected guard={!isLoading && isAuthenticated}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="idea/[id]" options={{ title: "Idea details" }} />
+        <Stack.Screen name="ai-settings" options={{ title: "AI" }} />
       </Stack.Protected>
       <Stack.Screen name="+not-found" options={{ title: "Page not found" }} />
     </Stack>

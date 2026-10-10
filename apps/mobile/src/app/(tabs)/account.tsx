@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
@@ -41,6 +42,15 @@ export default function Account() {
         Your ideas sync with the same account on web and mobile. Theme follows
         your device.
       </Note>
+      {/*
+        AI settings live on their own screen rather than inline here. The provider
+        picker alone is eight buttons plus a key field, a model field and a test -
+        inline it would bury import/export, which is what this screen is about.
+      */}
+      <Button
+        title="AI providers & keys"
+        onPress={() => router.push("/ai-settings")}
+      />
       <Failure message={error} />
 
       {/*
