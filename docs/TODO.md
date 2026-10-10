@@ -139,13 +139,15 @@ behind the ones that do not.
       low. Started twice and reverted both times: the perturbation to the list hot path
       is not worth shipping unverified, and the edit-tool splicing corrupted
       `ideas.ts` twice.
-- [~] **PM tool import** (product-manager persona) — `src/lib/pm-import.ts`, pure and
-      tested offline (`verify:pm-import`). Detect + parse Jira / Linear / Trello /
-      Obsidian / Notion / Todoist / plain. Column-alias driven, so it survives the
-      ~200-column Jira export; EVERY unmapped column is reported with its original
-      casing rather than dropped. **NOT wired into either client's UI yet.**
-- [ ] **PM tool export** — the same persona wants to get ideas back OUT into the tools
-      they already use (Jira CSV, Linear, Notion Markdown). Nothing built.
+- [x] **PM tool import** (product-manager persona) — `src/lib/pm-import.ts`, shared by
+      web AND mobile. Column-alias driven, so it survives Jira's ~200-column export;
+      every unmapped column is reported in its original casing rather than dropped.
+      Verified offline (`verify:pm-import`) AND by driving a real Jira CSV through the
+      web file input (checks 86-93).
+- [ ] **PM tool export** — the same persona wants ideas back OUT into the tools they
+      already use: a Notion-ready Markdown export exists, but a Jira/Linear-shaped CSV
+      with Summary / Status / Labels columns would let them push selected ideas into
+      a backlog ticket. Nothing built.
 - [ ] **Android: AI provider settings** - the web client has bring-your-own-key across
       eight providers. Not yet on mobile. Needs a keychain, not `sessionStorage`.
 - [ ] **iOS: spec fields `audience` / `outcome` / `trigger`** - `apps/ios/Sources/Models.swift`
