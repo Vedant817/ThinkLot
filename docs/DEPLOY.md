@@ -63,6 +63,20 @@ npx convex env set --prod SITE_URL      "https://your-domain"
 `SITE_URL` matters: it is the OAuth / magic-link callback origin. Leaving it
 pointing at localhost is the classic "works on my machine" auth bug.
 
+Set the owner dashboard gate **on whichever deployment the app points at**
+(dev today, `--prod` if a production deployment exists):
+
+```bash
+npx convex env set OWNER_EMAIL "you@example.com"
+```
+
+The `/owner` route compares the signed-in email against this value server-side
+and fails closed for everyone else - including when the variable is unset, in
+which case the page shows "Not available" rather than data. The address is yours
+to choose; it should be the account you actually use, since that account's usage
+flows into the aggregates like any other user's. Changing it later is one command
+and takes effect immediately (no redeploy: it is read at request time).
+
 ---
 
 ## 2. Frontend
