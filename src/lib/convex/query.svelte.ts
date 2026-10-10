@@ -34,7 +34,8 @@ export function watchQuery<T>(
 	client: BaseConvexClient | null,
 	reference: unknown,
 	args: ConvexArgs = {},
-	initial: T | undefined = undefined
+	initial: T | undefined = undefined,
+	opts: { silent?: boolean } = {}
 ): QueryHandle<T> {
 	const state = $state({ current: initial as T | undefined, loading: true, error: null as string | null });
 
@@ -90,7 +91,15 @@ export function watchQuery<T>(
 		} catch (error) {
 			state.loading = false;
 			state.error = error instanceof Error ? error.message : String(error);
-			console.error(`ThinkLot: query ${name} failed.`, error);
+			/*
+			 * Refusal is a normal state for gated queries: the /owner page
+			 * subscribes knowing the gate will usually say no, and logging that
+			 * as an error tells the developer something is broken when the gate
+			 * is working. `silent` marks exactly those subscriptions; everything
+			 * else still logs, because an unexpected query failure is still the
+			 * most dangerous thing this app can show wrong.
+			 */
+			if (!opts.silent) console.error(`ThinkLot: query ${name} failed.`, error);
 		}
 	};
 

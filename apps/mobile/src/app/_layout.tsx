@@ -1,17 +1,47 @@
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useColorScheme } from "react-native";
+import { Platform, useColorScheme } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect } from "react";
 import { tokenStorage } from "../lib/auth";
 import { Heading, Note, Page, usePalette } from "../components/ui";
 import { ConnectionBanner } from "../lib/connection";
 import { client } from "../lib/convex";
+import { api, dayBucket } from "../lib/api";
+import { storedKeyIds } from "../lib/ai-credentials";
 
 export { client };
 function Routes() {
   const { isLoading, isAuthenticated } = useConvexAuth();
+  const heartbeat = useMutation(api.telemetry.heartbeat);
+  /*
+   * Once-daily product heartbeat: platform + whether an AI key is set.
+   *
+   * Guarded by a stored date so it fires at most once a day, and wrapped so
+   * telemetry can never break the app - a throw here must not touch auth state
+   * or navigation. The server enforces the opt-out and the once-per-day upsert;
+   * the client guard is only thrift (no wasted round trip). No content, no key,
+   * no PII: the shape is the privacy story.
+   */
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void (async () => {
+      try {
+        const today = dayBucket(Date.now());
+        if ((await AsyncStorage.getItem("thinklot:telemetry:heartbeat")) === today) return;
+        await heartbeat({
+          platform: Platform.OS === "ios" ? "ios" : "android",
+          aiConfigured: (await storedKeyIds()).length > 0,
+        });
+        await AsyncStorage.setItem("thinklot:telemetry:heartbeat", today);
+      } catch {
+        /* Telemetry is best-effort by design. */
+      }
+    })();
+  }, [isAuthenticated, heartbeat]);
   const c = usePalette();
   return (
     <Stack

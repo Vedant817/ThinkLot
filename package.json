@@ -26,6 +26,7 @@
     "verify:pm-import": "vite-node scripts/verify-pm-import.ts",
     "verify:export": "vite-node scripts/verify-export.ts",
     "verify:export-targets": "vite-node scripts/verify-export-targets.ts",
+    "verify:analytics": "vite-node scripts/verify-analytics.ts",
     "verify:theme": "vite-node scripts/verify-theme-contrast.ts",
     "verify:jira-fixture": "vite-node scripts/verify-jira-fixture.ts",
     "verify:portability": "vite-node scripts/verify-portability.ts",
@@ -35,7 +36,7 @@
     "verify:authproxy": "vite-node scripts/verify-authproxy.ts",
     "verify:concurrency": "vite-node scripts/verify-concurrency.ts",
     "verify:contracts": "node apps/ios/scripts/verify-contracts.mjs",
-    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:roadmap && npm run verify:offline-banner && npm run verify:device-fixes && npm run verify:ai && npm run verify:pm-import && npm run verify:export && npm run verify:export-targets && npm run verify:theme && npm run verify:jira-fixture && npm run verify:portability && npm run verify:review && npm run verify:shortcuts && npm run verify:contracts"
+    "verify:offline": "npm run verify:scoring && npm run verify:capture && npm run verify:list && npm run verify:lotquery && npm run verify:maturity && npm run verify:clustering && npm run verify:roadmap && npm run verify:offline-banner && npm run verify:device-fixes && npm run verify:ai && npm run verify:pm-import && npm run verify:export && npm run verify:export-targets && npm run verify:analytics && npm run verify:theme && npm run verify:jira-fixture && npm run verify:portability && npm run verify:review && npm run verify:shortcuts && npm run verify:contracts"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.2",

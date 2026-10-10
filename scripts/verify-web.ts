@@ -223,7 +223,13 @@ async function main() {
 		{ path: '/board', label: 'board', expect: ['board'] },
 		{ path: '/review', label: 'review', expect: ['review'] },
 		{ path: '/archive', label: 'archive', expect: ['archive'] },
-		{ path: '/settings/ai', label: 'AI settings', expect: ['Provider', 'Model'] }
+		{ path: '/settings/ai', label: 'AI settings', expect: ['Provider', 'Model'] },
+		// A fresh QA account has captures but no history: streak/voice/coverage
+		// render from the list alone, so these hold without any review session.
+		{ path: '/settings/analytics', label: 'analytics', expect: ['Your numbers', 'Streak'] },
+		// OWNER_EMAIL is unset in test, so the gate must fail closed with the
+		// single locked message - never data, never a stack trace.
+		{ path: '/owner', label: 'owner locked', expect: ['Not available'] }
 	];
 
 	for (const route of routes) {
@@ -245,6 +251,19 @@ async function main() {
 			check(`${route.label}: rendered`, false, String(error).slice(0, 400));
 		}
 	}
+
+	// The fourth review decision. The seeded account may or may not have a queued
+	// item at this point, so the assertion accepts either the button or the empty
+	// state - what it refuses is a queue WITH items and no Decide-later button,
+	// which is the exact gap skip used to be.
+	await page.goto(`${BASE}/review`);
+	const reviewBody = await waitForAll(page, ['review'], 'review-skip');
+	const queueHasItems = !has(reviewBody, 'Nothing needs reviewing');
+	check(
+		'review: Decide later offered on queued items',
+		!queueHasItems || has(reviewBody, 'Decide later'),
+		queueHasItems ? 'queued items without the fourth decision' : 'queue clear, nothing to offer on'
+	);
 
 	console.log('\n== a real Jira export lands and REPORTS what it could not read ==');
 

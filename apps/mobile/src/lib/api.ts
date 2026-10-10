@@ -129,3 +129,14 @@ export type {
   CandidateForDuplicates,
   DuplicatePair,
 } from '../../../../src/lib/ai/prompts';
+
+/*
+ * Personal analytics, computed from rows already held.
+ *
+ * Same pure module as web: a streak or a voice share must not depend on which
+ * client renders it. The phone shows four rows in Account; the full breakdown
+ * lives on web, where there is room - and the module is shared so the four rows
+ * can never disagree with it.
+ */
+export { computePersonal, dayBucket } from '../../../../src/lib/analytics';
+export type { AnalyticsIdea, AnalyticsEvent, PersonalAnalytics } from '../../../../src/lib/analytics';

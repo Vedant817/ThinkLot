@@ -142,6 +142,9 @@
 		// destination that is optional, unconfigured for most people, and touches
 		// nothing else in the app when unused.
 		{ href: '/settings/ai', label: 'AI', soon: false },
+		// Your numbers. Listed with the other settings because it is read-only and
+		// personal: computed from the user's own rows, compared against nobody.
+		{ href: '/settings/analytics', label: 'Your numbers', soon: false },
 		// Import and export. Listed after AI for the same reason: optional, and only
 		// matters to someone who intends to move or back up.
 		{ href: '/settings/transfer', label: 'Import / export', soon: false }

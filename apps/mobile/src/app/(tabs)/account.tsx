@@ -5,6 +5,7 @@ import { api } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
 import { errorMessage } from "../../lib/auth";
 import { Transfer } from "../../components/transfer";
+import { YourNumbers } from "../../components/your-numbers";
 import {
   Button,
   Failure,
@@ -51,6 +52,12 @@ export default function Account() {
         title="AI providers & keys"
         onPress={() => router.push("/ai-settings")}
       />
+      {/*
+        Four personal numbers, computed from rows the lot query already holds.
+        Placed before import/export: this screen is about the user's data, and
+        these four sentences are the most-read thing on it.
+      */}
+      <YourNumbers />
       <Failure message={error} />
 
       {/*
