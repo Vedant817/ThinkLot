@@ -277,9 +277,61 @@ while at it: top-level `splash` in app.json is inert in SDK 57 (generated
 change ever took effect in any build until a manual prebuild was run; the final
 release below is the first build with the real splash config.
 
+## Fifth run: analytics for users and owner
+
+Three PM agents scoped it (user lens, owner lens, data/privacy/cost lens); the
+synthesis overruled them twice, both stated here:
+
+1. The data architect wanted analytics writes piggybacked onto every mutation
+(+1R+1W per action). Rejected: it taxes the hot path and risks latency for data
+a cron can derive. The rollup reads existing tables + one heartbeat table.
+2. The data architect wanted aggregates exposed only via internal functions +
+server routes. Rejected as over-mechanism: an authenticated env-gated query
+returning precomputed rows is neither unauthenticated nor a scan. The threat
+model (public queries are unauthenticated HTTP) does not apply to it.
+
+### User analytics (no new writes)
+
+Shared `src/lib/analytics.ts` folds list rows (+ bounded own-events on web) into
+streak, voice share, scoring coverage, oldest untouched, decision latency median,
+30d decision mix (parsed from the exact `effectOf` narratives), let-go weeks,
+park-to-build, finish-vs-letgo, verbatim-kept, favorites-acted-on, and task
+follow-through. Mobile Account shows four rows; web has settings/analytics with
+sections, truncation honesty (250-row cap), and the telemetry opt-out. Task
+completion dates do not exist in the schema, so weekly completion metrics were
+cut rather than guessed.
+
+### Owner dashboard (one row/day)
+
+`dailyOwnerStats` + `clientHeartbeats` (platform enum, AI boolean, day - nothing
+else) + opt-out table + 08:00 UTC rollup + env-gated `owner:stats` + hidden
+`/owner` route with <5-DAU percentage suppression. First rollup attempt read
+~31k documents and timed out: per-metric re-scans. Rewritten as a single
+collection pass (4 bounded reads/user, everything folded in memory); Oct 9
+rolled up reconciled (`verified:true`, 176 DAU test bloat). Cron-derived metrics
+need no client changes; heartbeat covers opens/platform/AI-setup. Provider and
+model ids deferred (opt-in tier, unbuilt). OWNER_EMAIL unset until the owner
+supplies their login email - the page fails closed until then.
+
+### Verified accuracy
+
+- `verify-analytics.ts`: exact hand-computed fixtures (streaks incl. gaps/lapses,
+voice windows, latency median, narrative mapping, conversions) + source
+assertions (bounded reads, gating, no content in telemetry, opt-out honored).
+Two of its failures were test bugs (unpadded ISO day, miscounted parked fixture)
+- stated because a suite that never catches its author is decorative.
+- Live: probe account with known history reproduces exactly through
+`verify-analytics-live.ts`; heartbeat/opt-out/gate/input-validation via HTTP;
+rollup reconciliation flag; verify-web 99/99 including analytics route,
+locked-owner route, and Decide-later presence.
+- Device: Your-numbers rows match hand counts; opt-out toggles both ways;
+heartbeat guard key present in AsyncStorage (written only after a successful
+mutation), and today's rollup includes it.
+
 ## Not verified
 
 - iOS is untouched
+
  and Mac-only. `verify:contracts` verifies 16 Convex function
   contracts by parsing the Swift structs; Swift compilation remains unverifiable here.
 - `decide later` (`skip`) is defined in `src/lib/review.ts` and reachable from neither
