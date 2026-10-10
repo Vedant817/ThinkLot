@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePalette } from "../components/ui";
 import { useConnectionStatus } from "./connection-state";
 import { client } from "./convex";
@@ -36,6 +37,17 @@ import { client } from "./convex";
 export function ConnectionBanner() {
 	const c = usePalette();
 	const status = useConnectionStatus(client);
+	/*
+	 * Below the status bar, not under it.
+	 *
+	 * The banner is absolutely positioned over the whole root view, which extends
+	 * under the translucent status bar. Without the top inset it rendered its text
+	 * on top of the clock and signal icons - visible in the first screenshot taken
+	 * of it on a real device, where "Offline — ideas may not save" collided with
+	 * the status row. The screens below already get their insets from the
+	 * SafeAreaProvider; this sibling has to take its own.
+	 */
+	const insets = useSafeAreaInsets();
 
 	/*
 	 * Dismissal is per-outage, so it has to forget itself once the connection recovers.
@@ -68,7 +80,8 @@ export function ConnectionBanner() {
 				borderBottomWidth: 1,
 				borderColor: c.line,
 				paddingHorizontal: 16,
-				paddingVertical: 8,
+				paddingTop: insets.top + 8,
+				paddingBottom: 8,
 			}}
 			accessibilityRole="alert"
 			accessibilityLiveRegion="polite"

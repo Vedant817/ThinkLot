@@ -78,35 +78,49 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Dark — neutral, not blue-black. A capture tool is used at night as often as
-   it is used on a train in daylight, so the dark surface stays desaturated.
+   Dark — soft slate, not near-black.
+
+   These were pure near-neutrals (#0e0e11 paper, #f4f4f1 ink), which read as
+   "contrast dialled to maximum": the surface went almost to black and the text
+   to almost white, so every screen looked like a screenshot of a terminal.
+
+   The fix is a single consistent cast rather than a lightened black: paper is
+   lifted to a slate that still sits unambiguously behind the content, every
+   surface is desaturated towards blue-grey (cooler in both senses — lower
+   temperature and calmer), and the ink tokens are dimmed slightly so text reads
+   against the page rather than punching through it.
+
+   Contrast is the constraint, so it is measured rather than eyeballed:
+   `scripts/verify-theme-contrast.ts` asserts every ink token clears WCAG AA on
+   paper, panel and sunk. Softening a dark theme by hand is the easiest way to
+   quietly break that, which is why it is a gate rather than a note.
    --------------------------------------------------------------------------- */
 [data-theme='dark'] {
-	--paper: #0e0e11;
-	--panel: #17171b;
-	--sunk: #121216;
-	--rule: #26262c;
-	--rule-strong: #6b6b75;
+	--paper: #171920;
+	--panel: #1f232b;
+	--sunk: #1c2027;
+	--rule: #343944;
+	--rule-strong: #737b8b;
 
-	--ink: #f4f4f1;
-	--ink-2: #a8a8a2;
-	--ink-3: #8d8d86;
+	--ink: #e8eaf0;
+	--ink-2: #a8aebc;
+	--ink-3: #8b93a3;
 
 	--signal: #8b7cf6;
-	--signal-ink: #14101f;
-	--signal-soft: #1e1a33;
+	--signal-ink: #16121f;
+	--signal-soft: #232038;
 
 	--lot: #f0b429;
-	--lot-soft: #2b2010;
+	--lot-soft: #2e2413;
 
 	--ok: #46b981;
-	--ok-soft: #10241a;
+	--ok-soft: #12271e;
 	--warn: #f0b429;
 	--warn-soft: #2b2010;
 	--bad: #f87171;
 	--bad-soft: #2c1614;
 	--good: #4ade80;
-	--good-soft: #12261a;
+	--good-soft: #142a1e;
 
 	color-scheme: dark;
 }

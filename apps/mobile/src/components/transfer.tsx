@@ -228,10 +228,16 @@ export function Transfer() {
             is told where the import actually goes.
           */}
           {EXPORT_TARGETS.map((target) => (
+            /*
+              NOT primary. All five were `primary` at first, which rendered a wall
+              of five violet slabs - and violet means "the action you should take",
+              singular. Five equal slabs say nothing is more important than anything
+              else while shouting. Outline buttons carry the same labels without
+              promoting any destination over the others.
+            */
             <Button
               key={target.id}
               title={`Export for ${target.label}`}
-              primary
               disabled={busy}
               onPress={() => void share(target.id)}
             />

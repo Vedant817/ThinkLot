@@ -81,8 +81,13 @@ export function IdeaList({
         }
       />
       {!archive && !board && <Capture />}
+      {/*
+        No `label` on search. The placeholder ("Title, notes or a tag") already names
+        the field, and a second caption above it was a screen-run flag: two labels and
+        one input. The accessibility label falls back to the placeholder, so a
+        screen-reader user keeps the control's name.
+      */}
       <Field
-        label="Search"
         placeholder="Title, notes or a tag"
         value={search}
         onChangeText={setSearch}

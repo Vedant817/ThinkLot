@@ -37,21 +37,41 @@ export function usePalette() {
   const dark = useColorScheme() === "dark";
   return dark
     ? {
-        paper: "#0e0e11",
-        panel: "#17171b",
-        sunk: "#121216",
-        line: "#26262c",
-        lineStrong: "#6b6b75",
-        ink: "#f4f4f1",
-        ink2: "#a8a8a2",
-        muted: "#8d8d86",
+        /*
+         * Dark — soft slate, not near-black.
+         *
+         * These were pure near-neutrals (#0e0e11 paper, #f4f4f1 ink), which read as
+         * "contrast dialled to maximum": the surface went almost to black and the
+         * text to almost white, so every screen looked like a screenshot of a
+         * terminal. A device run flagged it as "too black, very contrasted".
+         *
+         * The fix is a single consistent cast rather than a lightened black: paper
+         * is lifted to a slate that still sits unambiguously behind the content,
+         * every surface is desaturated towards blue-grey (cooler in both senses -
+         * lower temperature and calmer), and the ink tokens are dimmed slightly so
+         * text reads against the page rather than punching through it.
+         *
+         * Contrast is the constraint, so it is measured rather than eyeballed:
+         * `scripts/verify-theme-contrast.ts` asserts every ink token clears WCAG AA
+         * on paper, panel and sunk. Softening a dark theme by hand is the easiest
+         * way to quietly break that, which is why it is a gate rather than a note.
+         */
+        paper: "#171920",
+        panel: "#1f232b",
+        sunk: "#1c2027",
+        line: "#343944",
+        lineStrong: "#737b8b",
+        ink: "#e8eaf0",
+        ink2: "#a8aebc",
+        muted: "#8b93a3",
         signal: "#8b7cf6",
-        signalInk: "#14101f",
-        signalSoft: "#1e1a33",
+        signalInk: "#16121f",
+        signalSoft: "#232038",
         lot: "#f0b429",
-        lotSoft: "#2b2010",
+        lotSoft: "#2e2413",
         ok: "#46b981",
-        danger: "#ff9d94",
+        good: "#4ade80",
+        danger: "#f87171",
       }
     : {
         paper: "#ffffff",
@@ -71,6 +91,7 @@ export function usePalette() {
         lot: "#8a5300",
         lotSoft: "#fdf1dc",
         ok: "#0f6b45",
+        good: "#1c6b3a",
         danger: "#a81f14",
       };
 }
@@ -133,29 +154,25 @@ export function Page({
  * headline. 26 still reads as a title and leaves the capture field above the
  * fold on a 5" phone.
  */
+/**
+ * A screen heading.
+ *
+ * The `eyebrow` is gone. It defaulted to "ThinkLot / Field ledger" and therefore
+ * sat above every single screen, which on a phone is a row of chrome that says
+ * nothing about the screen it is on - the same treatment the web app can carry,
+ * because there a wordmark sits in a persistent header rather than repeating in
+ * every scroll view. A device run flagged it directly.
+ */
 export function Heading({
   title,
   subtitle,
-  eyebrow = "ThinkLot / Field ledger",
 }: {
   title: string;
   subtitle?: string;
-  eyebrow?: string;
 }) {
   const c = usePalette();
   return (
     <View style={{ gap: 6 }}>
-      <Text
-        style={{
-          color: c.muted,
-          fontFamily: mono,
-          fontSize: 11,
-          letterSpacing: 2.4,
-          textTransform: "uppercase",
-        }}
-      >
-        {eyebrow}
-      </Text>
       <Text
         accessibilityRole="header"
         style={{ fontSize: 26, lineHeight: 30, fontWeight: "700", color: c.ink }}
@@ -169,17 +186,27 @@ export function Heading({
   );
 }
 
-/** Small caps label. The workhorse for field names and counts. */
+/**
+ * A quiet section header.
+ *
+ * Was 11px monospace, uppercase, +1.4 tracking - the web app's eyebrow style. That
+ * is the caption problem a device run flagged: the web client can carry a row of
+ * uppercase mono eyebrows because they sit in wide, horizontally-arranged panels,
+ * but on a phone nineteen of them stacked down a scroll view read as shouting and
+ * pushed the actual content down the page.
+ *
+ * Sentence case, medium weight, no tracking, muted. Still unmistakably a label;
+ * no longer the loudest thing on the screen.
+ */
 export function Label({ children }: PropsWithChildren) {
   const c = usePalette();
   return (
     <Text
       style={{
         color: c.muted,
-        fontFamily: mono,
-        fontSize: 11,
-        letterSpacing: 1.4,
-        textTransform: "uppercase",
+        fontSize: 12,
+        lineHeight: 16,
+        fontWeight: "600",
       }}
     >
       {children}
@@ -366,14 +393,24 @@ export function Field({
   placeholder,
   hint,
   ...props
-}: TextInputProps & { label: string; hint?: string }) {
+}: TextInputProps & { label?: string; hint?: string }) {
   const c = usePalette();
   const [focused, setFocused] = useState(false);
+  /*
+   * The label is now optional.
+   *
+   * It was mandatory, which forced a visible eyebrow onto fields that already
+   * describe themselves in their placeholder - the search input read "Search" above
+   * a box that says "Title, notes or a tag", which is two captions and one input.
+   * The accessibility label falls back to the placeholder so dropping the visual one
+   * never costs a screen-reader user the control's name.
+   */
+  const announced = label ?? placeholder ?? "Text field";
   return (
     <View style={{ gap: 7 }}>
-      <Label>{label}</Label>
+      {label ? <Label>{label}</Label> : null}
       <TextInput
-        accessibilityLabel={label}
+        accessibilityLabel={announced}
         placeholder={placeholder}
         placeholderTextColor={c.muted}
         onFocus={() => setFocused(true)}

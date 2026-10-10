@@ -60,7 +60,25 @@ export function Capture() {
     }
     lastChange.current = now;
     setDraft(next);
+    // A confirmation from the PREVIOUS save must not sit under the next draft.
+    // The notice ("Idea parked") stayed visible across tab switches and later
+    // saves on a real device, reading as current news about nothing. Typing
+    // retires it; the timeout below retires it when the user just reads.
+    setNotice(undefined);
   }
+  /*
+   * Confirmations expire.
+   *
+   * Without this, "Idea parked" survives tab switches indefinitely (tab screens
+   * stay mounted), and a stale confirmation is worse than none: it claims a save
+   * just happened when the user may have come back an hour later. Ten seconds is
+   * long enough to read and short enough to never greet a return visit.
+   */
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(undefined), 10000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   useEffect(() => {
     let active = true;
     void AsyncStorage.getItem(storageKey)
@@ -138,9 +156,17 @@ export function Capture() {
   }
   return (
     <>
+      {/*
+        No `label` above the field.
+
+        The placeholder already says what to do, so a caption above a single input is
+        exactly the clutter a device run flagged. Capture is the one screen that has
+        to be usable in under five seconds, and it now carries one control instead of
+        three labels. The accessibility label falls back to the placeholder, so the
+        control keeps its name for a screen reader.
+      */}
       <Field
-        label="Capture a spark"
-        placeholder="What’s on your mind? Dictation works too."
+        placeholder="What's on your mind? Dictation works too."
         value={draft}
         onChangeText={onChangeText}
         multiline
