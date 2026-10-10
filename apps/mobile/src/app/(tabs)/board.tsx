@@ -16,10 +16,12 @@ import {
   Page,
   Plate,
   styles,
+  useFontMult,
   usePalette,
 } from "../../components/ui";
 export default function Board() {
   const c = usePalette();
+  const fm = useFontMult();
   const query = useLiveQuery(api.ideas.list, {});
   const setStatus = useMutation(api.ideas.setStatus);
   const [selected, setSelected] = useState<Id<"ideas"> | null>(null);
@@ -173,8 +175,8 @@ export default function Board() {
                         <Text
                           style={{
                             color: c.ink,
-                            fontSize: 15,
-                            lineHeight: 20,
+                            fontSize: Math.round(15 * fm),
+                            lineHeight: Math.round(20 * fm),
                             fontWeight: "600",
                           }}
                         >

@@ -3,11 +3,11 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { Platform, useColorScheme } from "react-native";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect } from "react";
 import { tokenStorage } from "../lib/auth";
-import { Heading, Note, Page, usePalette } from "../components/ui";
+import { Heading, Note, Page, ThemeProvider, usePalette, useTheme } from "../components/ui";
 import { ConnectionBanner } from "../lib/connection";
 import { client } from "../lib/convex";
 import { api, dayBucket } from "../lib/api";
@@ -58,6 +58,7 @@ function Routes() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="idea/[id]" options={{ title: "Idea details" }} />
         <Stack.Screen name="ai-settings" options={{ title: "AI" }} />
+        <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
       </Stack.Protected>
       <Stack.Screen name="+not-found" options={{ title: "Page not found" }} />
     </Stack>
@@ -77,10 +78,25 @@ function Routes() {
  * needed precisely where authentication has not succeeded.
  */
 export default function RootLayout() {
-  const dark = useColorScheme() === "dark";
   return (
     <SafeAreaProvider>
-      <StatusBar style={dark ? "light" : "dark"} />
+      {/*
+        Theme first, above everything including auth. The sign-in screen uses
+        themed primitives, and a theme that only applies past login would flash
+        defaults at exactly the user who just installed the app.
+      */}
+      <ThemeProvider>
+        <ThemedRoot />
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+}
+
+function ThemedRoot() {
+  const { scheme } = useTheme();
+  return (
+    <>
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       {client ? (
         <>
           <ConvexAuthProvider
@@ -101,6 +117,6 @@ export default function RootLayout() {
           </Note>
         </Page>
       )}
-    </SafeAreaProvider>
+    </>
   );
 }

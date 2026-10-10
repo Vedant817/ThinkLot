@@ -10,11 +10,13 @@ import {
   Note,
   Page,
   mono,
+  useFontMult,
   usePalette,
 } from "../../components/ui";
 export default function Dashboard() {
   const query = useLiveQuery(api.ideas.stats, {});
   const c = usePalette();
+  const fm = useFontMult();
   return (
     <Page>
       <Heading
@@ -81,8 +83,8 @@ export default function Dashboard() {
                   <Text
                     style={{
                       color: c.ink2,
-                      fontSize: 12,
-                      lineHeight: 15,
+                      fontSize: Math.round(12 * fm),
+                      lineHeight: Math.round(15 * fm),
                       fontWeight: "600",
                     }}
                   >
@@ -92,8 +94,8 @@ export default function Dashboard() {
                     style={{
                       color: count ? c.ink : c.muted,
                       fontFamily: mono,
-                      fontSize: 12,
-                      lineHeight: 15,
+                      fontSize: Math.round(12 * fm),
+                      lineHeight: Math.round(15 * fm),
                       fontWeight: "700",
                     }}
                   >

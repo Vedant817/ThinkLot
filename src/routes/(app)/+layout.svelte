@@ -31,25 +31,31 @@
 	});
 
 	/**
-	 * Theme is tracked here rather than read from the DOM in the template.
-	 * Reading `document.documentElement.dataset.theme` inside markup compiled to a
-	 * one-shot `textContent` assignment, so the toggle kept saying "Dark" after
-	 * the surface had already gone dark.
+	 * Theme lives in the store, not here. The layout used to own a light/dark
+	 * toggle with its own state and storage key; that predates modes (system)
+	 * and custom themes, and two writers for one surface is how they disagree.
+	 * The header keeps a one-tap control that cycles light → dark → system and
+	 * always names where it landed - the full selector lives on
+	 * /settings/appearance.
 	 */
-	let theme = $state<'light' | 'dark'>('light');
+	import { themeStore } from '$lib/theme-store.svelte';
+
+	const MODE_ORDER: ('light' | 'dark' | 'system')[] = ['light', 'dark', 'system'];
+	const MODE_LABEL = { light: 'Light', dark: 'Dark', system: 'System' } as const;
+
 	$effect(() => {
-		theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+		themeStore.apply();
+		// While in system mode the OS can flip under us (sunset, control
+		// center). Without this the app keeps yesterday's surface until reload.
+		const media = window.matchMedia('(prefers-color-scheme: dark)');
+		const onChange = () => themeStore.apply();
+		media.addEventListener('change', onChange);
+		return () => media.removeEventListener('change', onChange);
 	});
 
-	function toggleTheme() {
-		const next = theme === 'dark' ? 'light' : 'dark';
-		theme = next;
-		document.documentElement.dataset.theme = next;
-		try {
-			localStorage.setItem('thinklot:theme', next);
-		} catch {
-			/* storage blocked; theme just will not persist */
-		}
+	function cycleTheme() {
+		const next = MODE_ORDER[(MODE_ORDER.indexOf(themeStore.mode) + 1) % MODE_ORDER.length];
+		themeStore.setMode(next);
 	}
 
 	async function signOut() {
@@ -199,11 +205,10 @@
 			<div class="flex items-center gap-4">
 				<button
 					type="button"
-					onclick={toggleTheme}
-					aria-pressed={theme === 'dark'}
+					onclick={cycleTheme}
 					class="font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:text-ink md:hidden"
 				>
-					{theme === 'dark' ? 'Light' : 'Dark'}
+					{MODE_LABEL[themeStore.mode]}
 				</button>
 				<button
 					type="button"
@@ -267,10 +272,10 @@
 				<div class="mt-auto flex flex-col gap-2 border-t border-rule pt-3">
 					<button
 						type="button"
-						onclick={toggleTheme}
+						onclick={cycleTheme}
 						class="rounded px-2 py-1.5 text-left font-mono text-[11px] tracking-wider text-ink-3 uppercase hover:bg-sunk"
 					>
-						{theme === 'dark' ? 'Light' : 'Dark'}
+						{MODE_LABEL[themeStore.mode]}
 					</button>
 					<p class="truncate px-2 font-mono text-[11px] text-ink-3" title={convex.auth.email ?? ''}>
 						{convex.auth.email ?? 'signed in'}

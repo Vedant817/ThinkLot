@@ -59,6 +59,11 @@
 
 	const sections = [
 		{
+			href: '/settings/appearance',
+			title: 'Appearance',
+			blurb: 'Light, dark, or your device. Custom themes and type size.'
+		},
+		{
 			href: '/settings/ai',
 			title: 'AI providers & keys',
 			blurb: 'Bring your own key. Requests go straight to the provider.'

@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { usePalette } from "../../components/ui";
+import { useFontMult, usePalette } from "../../components/ui";
 
 /**
  * Tab navigation.
@@ -36,6 +36,10 @@ const TABS = [
 
 export default function TabLayout() {
   const c = usePalette();
+  // Tab labels scale with the type setting like everything else. The bar height
+  // stays fixed: scaled labels that overflow would clip, and a taller bar would
+  // steal content space on small phones for chrome.
+  const fm = useFontMult();
   const insets = useSafeAreaInsets();
   return (
     <Tabs
@@ -52,7 +56,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: c.signal,
         tabBarInactiveTintColor: c.muted,
-        tabBarLabelStyle: { fontSize: 11, letterSpacing: 0.2 },
+        tabBarLabelStyle: { fontSize: Math.round(11 * fm), letterSpacing: 0.2 },
       }}
     >
       {TABS.map((tab) => (

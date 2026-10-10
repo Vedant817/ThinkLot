@@ -21,14 +21,64 @@
 
 		<script>
 			// Resolve the theme before first paint. Without this the app flashes
-			// light before a night-mode user ever sees the dark surface.
+			// the wrong surface before a night-mode user ever sees theirs.
+			//
+			// Dependency-free by necessity: bundled JS has not loaded yet, so this
+			// duplicates just enough of `theme-store` to paint correctly. The store
+			// re-applies on boot, so any drift here self-heals within a frame - but
+			// keep the two in step anyway; `verify-settings` asserts the key names.
 			(function () {
 				try {
-					var stored = localStorage.getItem('thinklot:theme');
-					var prefersDark =
-						window.matchMedia('(prefers-color-scheme: dark)').matches;
-					document.documentElement.dataset.theme =
-						stored || (prefersDark ? 'dark' : 'light');
+					var mode = localStorage.getItem('thinklot:theme-mode');
+					if (!mode) {
+						// Migrate the pre-modes toggle: a stored light/dark choice
+						// becomes the mode, so nobody's preference is lost.
+						var legacy = localStorage.getItem('thinklot:theme');
+						mode = legacy === 'dark' || legacy === 'light' ? legacy : 'system';
+					}
+					var dark =
+						mode === 'dark' ||
+						(mode !== 'light' &&
+							window.matchMedia('(prefers-color-scheme: dark)').matches);
+					var scheme = dark ? 'dark' : 'light';
+					document.documentElement.dataset.theme = scheme;
+					var activeId = localStorage.getItem('thinklot:theme-active');
+					if (activeId && activeId !== 'default') {
+						try {
+							// Canonical token keys are NOT css variable names
+							// (`line` paints `--rule`); same table as the store.
+							var cssVars = {
+								paper: 'paper', panel: 'panel', sunk: 'sunk', line: 'rule',
+								lineStrong: 'rule-strong', ink: 'ink', ink2: 'ink-2', muted: 'ink-3',
+								signal: 'signal', signalInk: 'signal-ink', signalSoft: 'signal-soft',
+								lot: 'lot', lotSoft: 'lot-soft', ok: 'ok', okSoft: 'ok-soft',
+								warn: 'warn', warnSoft: 'warn-soft', danger: 'bad', dangerSoft: 'bad-soft',
+								good: 'good', goodSoft: 'good-soft'
+							};
+							var customs = JSON.parse(localStorage.getItem('thinklot:themes-custom') || '[]');
+							for (var i = 0; i < customs.length; i++) {
+								if (customs[i] && customs[i].id === activeId && customs[i][scheme]) {
+									var tokens = customs[i][scheme];
+									var css = ':root{';
+									for (var key in tokens) {
+										if (Object.prototype.hasOwnProperty.call(tokens, key)) {
+											css += '--' + (cssVars[key] || key) + ':' + tokens[key] + ';';
+										}
+									}
+									var style = document.createElement('style');
+									style.id = 'thinklot-theme-overrides';
+									style.textContent = css + '}';
+									document.head.appendChild(style);
+									break;
+								}
+							}
+						} catch (e) {
+							/* corrupt customs: skip, the store cleans up */
+						}
+					}
+					var font = localStorage.getItem('thinklot:font-scale');
+					var mult = { compact: 90, large: 115, xl: 130 }[font] || 100;
+					document.documentElement.style.fontSize = mult + '%';
 				} catch (e) {
 					/* storage blocked - the light default is fine */
 				}

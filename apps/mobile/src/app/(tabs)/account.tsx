@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
@@ -64,6 +65,14 @@ export default function Account() {
         section exists to prevent.
       */}
       <Integrations />
+      {/*
+        Appearance lives on its own screen: mode, themes, import and type size
+        together need more room than this screen has between profile and transfer.
+      */}
+      <Button
+        title="Appearance"
+        onPress={() => router.push("/appearance")}
+      />
       {/*
         Four personal numbers, computed from rows the lot query already holds.
         Placed before import/export: this screen is about the user's data, and

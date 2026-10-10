@@ -25,6 +25,7 @@ import {
   Page,
   Plate,
   styles,
+  useFontMult,
   usePalette,
 } from "./ui";
 import { Capture } from "./capture";
@@ -38,6 +39,7 @@ export function IdeaList({
   board?: boolean;
 }) {
   const c = usePalette();
+  const fm = useFontMult();
   const [search, setSearch] = useState("");
   const [needle, setNeedle] = useState("");
   const [status, setStatus] = useState<IdeaStatus>();
@@ -213,7 +215,7 @@ export function IdeaList({
                 style={{
                   color: c.muted,
                   fontFamily: mono,
-                  fontSize: 12,
+                  fontSize: Math.round(12 * fm),
                 }}
               >
                 {item.status}
@@ -222,7 +224,7 @@ export function IdeaList({
                 style={{
                   color: priorityScore(item) === null ? c.muted : c.lot,
                   fontFamily: mono,
-                  fontSize: 12,
+                  fontSize: Math.round(12 * fm),
                 }}
               >
                 {displayScore(priorityScore(item))}
@@ -243,14 +245,14 @@ export function IdeaList({
                 style={{
                   color: c.muted,
                   fontFamily: mono,
-                  fontSize: 12,
+                  fontSize: Math.round(12 * fm),
                 }}
               >
                 {maturityLabel(maturityOf(item).stage).toLowerCase()}
               </Text>
               {item.favorite ? <Feather name="star" size={13} color={c.lot} /> : null}
             </View>
-            <Text style={{ color: c.ink, fontSize: 17, lineHeight: 23, fontWeight: "600" }}>
+            <Text style={{ color: c.ink, fontSize: Math.round(17 * fm), lineHeight: Math.round(23 * fm), fontWeight: "600" }}>
               {item.title}
             </Text>
             {item.preview && <Note>{item.preview}</Note>}

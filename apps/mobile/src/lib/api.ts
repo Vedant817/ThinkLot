@@ -131,6 +131,33 @@ export type {
 } from '../../../../src/lib/ai/prompts';
 
 /*
+ * Themes and type scale, shared with the web client.
+ *
+ * The token values live here once; the web client paints css variables from
+ * them and the phone maps them onto its palette object. A custom theme built
+ * on either client imports on the other byte-identically, because both read
+ * the same definition shape.
+ */
+export {
+  DEFAULT_THEME,
+  TOKEN_KEYS,
+  THEME_VERSION,
+  FONT_SCALES,
+  AA_TEXT,
+  AA_NON_TEXT,
+  fontMult,
+  scaled,
+  luminance,
+  contrast,
+  validateTokens,
+  validateTheme,
+  slugify,
+  parseThemeImport,
+  serializeTheme,
+} from '../../../../src/lib/theme';
+export type { ThemeDef, ThemeTokens, TokenKey, FontScaleId } from '../../../../src/lib/theme';
+
+/*
  * Personal analytics, computed from rows already held.
  *
  * Same pure module as web: a streak or a voice share must not depend on which

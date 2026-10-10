@@ -12,7 +12,15 @@ import {
   type TextInputProps,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useState, type PropsWithChildren } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  DEFAULT_THEME,
+  fontMult,
+  type FontScaleId,
+  type ThemeDef,
+  type ThemeTokens,
+} from "../lib/api";
 
 /**
  * The ThinkLot palette.
@@ -31,69 +39,206 @@ import { useState, type PropsWithChildren } from "react";
  * Dark is neutral, not blue-black, because this tool gets used at night as often
  * as on a train in daylight.
  */
-export type Palette = ReturnType<typeof usePalette>;
+export type Palette = {
+  paper: string;
+  panel: string;
+  sunk: string;
+  line: string;
+  lineStrong: string;
+  ink: string;
+  ink2: string;
+  muted: string;
+  signal: string;
+  signalInk: string;
+  signalSoft: string;
+  lot: string;
+  lotSoft: string;
+  ok: string;
+  good: string;
+  danger: string;
+};
 
-export function usePalette() {
-  const dark = useColorScheme() === "dark";
-  return dark
-    ? {
-        /*
-         * Dark — soft slate, not near-black.
-         *
-         * These were pure near-neutrals (#0e0e11 paper, #f4f4f1 ink), which read as
-         * "contrast dialled to maximum": the surface went almost to black and the
-         * text to almost white, so every screen looked like a screenshot of a
-         * terminal. A device run flagged it as "too black, very contrasted".
-         *
-         * The fix is a single consistent cast rather than a lightened black: paper
-         * is lifted to a slate that still sits unambiguously behind the content,
-         * every surface is desaturated towards blue-grey (cooler in both senses -
-         * lower temperature and calmer), and the ink tokens are dimmed slightly so
-         * text reads against the page rather than punching through it.
-         *
-         * Contrast is the constraint, so it is measured rather than eyeballed:
-         * `scripts/verify-theme-contrast.ts` asserts every ink token clears WCAG AA
-         * on paper, panel and sunk. Softening a dark theme by hand is the easiest
-         * way to quietly break that, which is why it is a gate rather than a note.
-         */
-        paper: "#171920",
-        panel: "#1f232b",
-        sunk: "#1c2027",
-        line: "#343944",
-        lineStrong: "#737b8b",
-        ink: "#e8eaf0",
-        ink2: "#a8aebc",
-        muted: "#8b93a3",
-        signal: "#8b7cf6",
-        signalInk: "#16121f",
-        signalSoft: "#232038",
-        lot: "#f0b429",
-        lotSoft: "#2e2413",
-        ok: "#46b981",
-        good: "#4ade80",
-        danger: "#f87171",
+export type ThemeMode = "light" | "dark" | "system";
+
+type ThemeState = {
+  mode: ThemeMode;
+  /** Resolved against the OS when mode is system. */
+  scheme: "light" | "dark";
+  tokens: Palette;
+  fontScale: FontScaleId;
+  customs: ThemeDef[];
+  activeId: string;
+  setMode: (mode: ThemeMode) => void;
+  setActive: (id: string) => void;
+  saveCustom: (def: ThemeDef) => void;
+  deleteCustom: (id: string) => void;
+  setFontScale: (id: FontScaleId) => void;
+};
+
+const MODE_KEY = "thinklot:theme-mode";
+const ACTIVE_KEY = "thinklot:theme-active";
+const CUSTOM_KEY = "thinklot:themes-custom";
+const FONT_KEY = "thinklot:font-scale";
+
+function tokensToPalette(tokens: ThemeTokens): Palette {
+  return {
+    paper: tokens.paper,
+    panel: tokens.panel,
+    sunk: tokens.sunk,
+    line: tokens.line,
+    lineStrong: tokens.lineStrong,
+    ink: tokens.ink,
+    ink2: tokens.ink2,
+    muted: tokens.muted,
+    signal: tokens.signal,
+    signalInk: tokens.signalInk,
+    signalSoft: tokens.signalSoft,
+    lot: tokens.lot,
+    lotSoft: tokens.lotSoft,
+    ok: tokens.ok,
+    good: tokens.good,
+    danger: tokens.danger,
+  };
+}
+
+const ThemeContext = createContext<ThemeState | null>(null);
+
+/**
+ * Theme + type ownership for the whole app.
+ *
+ * Mode (light/dark/system), the active theme (built-in or custom), customs and
+ * the font scale persist in AsyncStorage - paint choices, not account data, so
+ * they stay on the device and never sync. `usePalette()` below is the only
+ * reader screens need; it keeps its exact shape, so all 34 call sites are
+ * untouched by themes becoming data.
+ */
+export function ThemeProvider({ children }: PropsWithChildren) {
+  const system = useColorScheme();
+  const [mode, setModeState] = useState<ThemeMode>("system");
+  const [activeId, setActiveId] = useState("default");
+  const [customs, setCustoms] = useState<ThemeDef[]>([]);
+  const [fontScale, setFontScale] = useState<FontScaleId>("default");
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const [m, a, c, f] = await Promise.all([
+          AsyncStorage.getItem(MODE_KEY),
+          AsyncStorage.getItem(ACTIVE_KEY),
+          AsyncStorage.getItem(CUSTOM_KEY),
+          AsyncStorage.getItem(FONT_KEY),
+        ]);
+        if (!active) return;
+        if (m === "light" || m === "dark" || m === "system") setModeState(m);
+        if (a) setActiveId(a);
+        if (c) {
+          const parsed = JSON.parse(c) as ThemeDef[];
+          if (Array.isArray(parsed)) setCustoms(parsed);
+        }
+        if (f === "compact" || f === "default" || f === "large" || f === "xl") setFontScale(f);
+      } catch {
+        /* storage blocked: defaults stand, painted instantly rather than gated */
       }
-    : {
-        paper: "#ffffff",
-        panel: "#f6f6f4",
-        sunk: "#eeeeeb",
-        line: "#e4e4de",
-        lineStrong: "#85857d",
-        ink: "#141418",
-        ink2: "#55554f",
-        // 4.618:1 on --sunk, measured. The web token was darkened from #6f6f68
-        // because it failed AA on that surface; keeping the same value here
-        // keeps the two clients honest about it.
-        muted: "#6b6b64",
-        signal: "#5b4bdb",
-        signalInk: "#ffffff",
-        signalSoft: "#eeecfd",
-        lot: "#8a5300",
-        lotSoft: "#fdf1dc",
-        ok: "#0f6b45",
-        good: "#1c6b3a",
-        danger: "#a81f14",
-      };
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const scheme = mode === "system" ? (system === "dark" ? "dark" : "light") : mode;
+  const active = customs.find((t) => t.id === activeId) ?? DEFAULT_THEME;
+  const tokens = useMemo(() => tokensToPalette(active[scheme]), [active, scheme]);
+
+  const value = useMemo<ThemeState>(
+    () => ({
+      mode,
+      scheme,
+      tokens,
+      fontScale,
+      customs,
+      activeId: active.id,
+      setMode: (m) => {
+        setModeState(m);
+        void AsyncStorage.setItem(MODE_KEY, m).catch(() => {});
+      },
+      setActive: (id) => {
+        setActiveId(id);
+        void AsyncStorage.setItem(ACTIVE_KEY, id).catch(() => {});
+      },
+      saveCustom: (def) => {
+        setCustoms((prev) => {
+          const next = [...prev.filter((t) => t.id !== def.id), def];
+          void AsyncStorage.setItem(CUSTOM_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+        setActiveId(def.id);
+        void AsyncStorage.setItem(ACTIVE_KEY, def.id).catch(() => {});
+      },
+      deleteCustom: (id) => {
+        setCustoms((prev) => {
+          const next = prev.filter((t) => t.id !== id);
+          void AsyncStorage.setItem(CUSTOM_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+        setActiveId((current) => {
+          const next = current === id ? "default" : current;
+          void AsyncStorage.setItem(ACTIVE_KEY, next).catch(() => {});
+          return next;
+        });
+      },
+      setFontScale: (id) => {
+        setFontScale(id);
+        void AsyncStorage.setItem(FONT_KEY, id).catch(() => {});
+      },
+    }),
+    [mode, scheme, tokens, fontScale, customs, active],
+  );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+/** The full theme state. Prefer `usePalette()` / `useFontMult()` unless building the appearance screen. */
+export function useTheme(): ThemeState {
+  // Unconditional: calling it only on the fallback path would break hook order
+  // for every component that sometimes renders inside the provider.
+  const system = useColorScheme();
+  const state = useContext(ThemeContext);
+  if (!state) {
+    // Outside a provider (unit tests, previews): system scheme, built-in theme.
+    // A hook that throws here would make every component unrenderable in
+    // isolation, which is worse than a default.
+    const scheme = system === "dark" ? "dark" : "light";
+    return {
+      mode: "system",
+      scheme,
+      tokens: tokensToPalette(DEFAULT_THEME[scheme]),
+      fontScale: "default",
+      customs: [],
+      activeId: "default",
+      setMode: () => {},
+      setActive: () => {},
+      saveCustom: () => {},
+      deleteCustom: () => {},
+      setFontScale: () => {},
+    };
+  }
+  return state;
+}
+
+export function usePalette(): Palette {
+  return useTheme().tokens;
+}
+
+/**
+ * Type scale multiplier for the one place font sizes are decided.
+ *
+ * Screens with inline `fontSize` read this and multiply, so the appearance
+ * setting reaches text the primitives do not own. `Math.round` at the call
+ * site, because fractional points shimmer.
+ */
+export function useFontMult(): number {
+  return fontMult(useTheme().fontScale);
 }
 
 /**
@@ -171,16 +316,21 @@ export function Heading({
   subtitle?: string;
 }) {
   const c = usePalette();
+  // Type scale applies here, in the primitives, so every screen inherits it
+  // without touching its own styles. `fm` multiplies point sizes; line heights
+  // scale with them so larger text does not collide with itself.
+  const fm = useFontMult();
+  const fs = (px: number) => Math.round(px * fm);
   return (
     <View style={{ gap: 6 }}>
       <Text
         accessibilityRole="header"
-        style={{ fontSize: 26, lineHeight: 30, fontWeight: "700", color: c.ink }}
+        style={{ fontSize: fs(26), lineHeight: fs(30), fontWeight: "700", color: c.ink }}
       >
         {title}
       </Text>
       {subtitle ? (
-        <Text style={{ color: c.ink2, fontSize: 14, lineHeight: 20 }}>{subtitle}</Text>
+        <Text style={{ color: c.ink2, fontSize: fs(14), lineHeight: fs(20) }}>{subtitle}</Text>
       ) : null}
     </View>
   );
@@ -200,12 +350,13 @@ export function Heading({
  */
 export function Label({ children }: PropsWithChildren) {
   const c = usePalette();
+  const fm = useFontMult();
   return (
     <Text
       style={{
         color: c.muted,
-        fontSize: 12,
-        lineHeight: 16,
+        fontSize: Math.round(12 * fm),
+        lineHeight: Math.round(16 * fm),
         fontWeight: "600",
       }}
     >
@@ -216,8 +367,9 @@ export function Label({ children }: PropsWithChildren) {
 
 export function Note({ children }: PropsWithChildren) {
   const c = usePalette();
+  const fm = useFontMult();
   return (
-    <Text style={{ color: c.ink2, fontSize: 15, lineHeight: 22 }}>{children}</Text>
+    <Text style={{ color: c.ink2, fontSize: Math.round(15 * fm), lineHeight: Math.round(22 * fm) }}>{children}</Text>
   );
 }
 
@@ -231,13 +383,14 @@ export function Note({ children }: PropsWithChildren) {
  */
 export function Plate({ children }: PropsWithChildren) {
   const c = usePalette();
+  const fm = useFontMult();
   return (
     <Text
       style={{
         color: c.lot,
         backgroundColor: c.lotSoft,
         fontFamily: mono,
-        fontSize: 12,
+        fontSize: Math.round(12 * fm),
         letterSpacing: 0.6,
         overflow: "hidden",
         borderRadius: 3,
@@ -306,6 +459,7 @@ export function Button({
   compact?: boolean;
 }) {
   const c = usePalette();
+  const fm = useFontMult();
   const background = danger
     ? "transparent"
     : primary
@@ -340,7 +494,7 @@ export function Button({
       <Text
         style={{
           color: disabled ? c.muted : foreground,
-          fontSize: compact ? 13 : 15,
+          fontSize: Math.round((compact ? 13 : 15) * fm),
           fontWeight: "600",
         }}
       >
@@ -395,6 +549,7 @@ export function Field({
   ...props
 }: TextInputProps & { label?: string; hint?: string }) {
   const c = usePalette();
+  const fm = useFontMult();
   const [focused, setFocused] = useState(false);
   /*
    * The label is now optional.
@@ -429,14 +584,14 @@ export function Field({
             borderRadius: 8,
             paddingHorizontal: 12,
             paddingVertical: 12,
-            fontSize: 16,
+            fontSize: Math.round(16 * fm),
             textAlignVertical: props.multiline ? "top" : "center",
           },
           props.style,
         ]}
       />
       {hint ? (
-        <Text style={{ color: c.muted, fontSize: 12, lineHeight: 17 }}>{hint}</Text>
+        <Text style={{ color: c.muted, fontSize: Math.round(12 * fm), lineHeight: Math.round(17 * fm) }}>{hint}</Text>
       ) : null}
     </View>
   );
@@ -450,6 +605,7 @@ export function Failure({
   retry?: () => void;
 }) {
   const c = usePalette();
+  const fm = useFontMult();
   return message ? (
     <View
       accessibilityLiveRegion="polite"
@@ -462,7 +618,7 @@ export function Failure({
         backgroundColor: "transparent",
       }}
     >
-      <Text style={{ color: c.danger, fontSize: 14, lineHeight: 20 }}>{message}</Text>
+      <Text style={{ color: c.danger, fontSize: Math.round(14 * fm), lineHeight: Math.round(20 * fm) }}>{message}</Text>
       {retry ? <Button title="Try again" onPress={retry} /> : null}
     </View>
   ) : null;

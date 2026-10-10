@@ -86,31 +86,38 @@ for (const theme of [
 
 const mobile = readFileSync('apps/mobile/src/components/ui.tsx', 'utf8');
 
-/** Pull `key: "#hex",` out of the dark or light object literal. */
-function mobileBlock(isDark: boolean): Record<string, string> {
-	const start = mobile.indexOf(isDark ? '    ? {' : '    : {');
-	if (start < 0) throw new Error('cannot find the mobile palette objects');
-	// Walk to the matching close, tracking brace depth so the nested literal ends.
-	let depth = 0;
-	let i = mobile.indexOf('{', start);
-	const from = i;
-	for (; i < mobile.length; i++) {
-		if (mobile[i] === '{') depth++;
-		else if (mobile[i] === '}') {
-			depth--;
-			if (depth === 0) break;
-		}
+/**
+ * The phone's palette, read from the shared definition through the same mapping
+ * `tokensToPalette` uses - plus an assertion that the mapping is complete.
+ *
+ * The literals this used to parse are gone: `usePalette()` now reads a theme
+ * store fed by DEFAULT_THEME, so there is nothing left in `ui.tsx` to drift.
+ * What can still break is the MAPPING (a token the phone reads but the mapper
+ * drops), so the gate asserts the mapper covers every key the palette needs
+ * and the shared values pass contrast.
+ */
+function mobileTokens(mode: 'light' | 'dark'): Record<string, string> {
+	const def = DEFAULT_THEME[mode] as unknown as Record<string, string>;
+	// The exact key list `tokensToPalette` must forward. If someone adds a key
+	// to Palette without mapping it here, this list and the mapper disagree -
+	// which is caught below by comparing against the mapper source.
+	const needed = [
+		'paper', 'panel', 'sunk', 'line', 'lineStrong', 'ink', 'ink2', 'muted',
+		'signal', 'signalInk', 'signalSoft', 'lot', 'lotSoft', 'ok', 'good', 'danger'
+	];
+	const mapper = mobile.slice(mobile.indexOf('function tokensToPalette'));
+	for (const key of needed) {
+		assert.ok(
+			new RegExp(`\\b${key}:\\s*tokens\\.${key}\\b`).test(mapper),
+			`tokensToPalette must forward ${key} - the palette needs it and the mapper drops it`
+		);
+		assert.ok(key in def, `DEFAULT_THEME.${mode} is missing ${key}`);
 	}
-	const body = mobile.slice(from, i + 1);
-	const out: Record<string, string> = {};
-	for (const m of body.matchAll(/(\w+):\s*"(#[0-9a-fA-F]{6})"/g)) {
-		out[m[1]] = m[2].toLowerCase();
-	}
-	return out;
+	return Object.fromEntries(needed.map((key) => [key, def[key].toLowerCase()]));
 }
 
-const mobileDark = mobileBlock(true);
-const mobileLight = mobileBlock(false);
+const mobileDark = mobileTokens('dark');
+const mobileLight = mobileTokens('light');
 
 for (const theme of [
 	{ name: 'light', t: mobileLight },
@@ -213,8 +220,10 @@ for (const [mobileKey, webKey] of pairs) {
 				expected[key],
 				`web ${mode} --${cssVar} differs from DEFAULT_THEME.${mode}.${key}`
 			);
-			// Mobile side: every canonical key except the *-soft set and warn pair,
-			// which the phone never reads (it uses signalSoft/lotSoft + ok/good/danger only).
+			// Mobile side: only the keys the phone actually reads (the mapper
+			// completeness is asserted in `mobileTokens`). The rest - okSoft,
+			// warn pair, dangerSoft, goodSoft - live in DEFAULT_THEME for web
+			// and travel in custom-theme JSON, but the phone never paints them.
 			if (key.endsWith('Soft') && key !== 'signalSoft' && key !== 'lotSoft') continue;
 			if (key === 'warn' || key === 'warnSoft') continue;
 			assert.ok(key in sources.mobile, `mobile ${mode} palette is missing ${key} that DEFAULT_THEME defines`);

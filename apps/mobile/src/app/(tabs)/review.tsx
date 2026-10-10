@@ -17,6 +17,7 @@ import {
   Page,
   Plate,
   styles,
+  useFontMult,
   usePalette,
 } from "../../components/ui";
 
@@ -31,6 +32,7 @@ const reasons = {
 
 export default function Review() {
   const c = usePalette();
+  const fm = useFontMult();
   const query = useLiveQuery(api.review.queue, {});
   const decide = useMutation(api.review.decide);
 
@@ -128,8 +130,8 @@ export default function Review() {
               <Text
                 style={{
                   color: c.ink,
-                  fontSize: 17,
-                  lineHeight: 23,
+                  fontSize: Math.round(17 * fm),
+                  lineHeight: Math.round(23 * fm),
                   fontWeight: "600",
                 }}
               >
@@ -257,6 +259,7 @@ function Reason({
   placeholder: string;
 }) {
   const c = usePalette();
+  const fm = useFontMult();
   return (
     <TextInput
       multiline
@@ -272,7 +275,7 @@ function Reason({
         paddingHorizontal: 10,
         paddingVertical: 8,
         color: c.ink,
-        fontSize: 15,
+        fontSize: Math.round(15 * fm),
         minHeight: 56,
         textAlignVertical: "top",
       }}

@@ -224,6 +224,8 @@ async function main() {
 		{ path: '/review', label: 'review', expect: ['review'] },
 		{ path: '/archive', label: 'archive', expect: ['archive'] },
 		{ path: '/settings/ai', label: 'AI settings', expect: ['Provider', 'Model'] },
+		{ path: '/settings', label: 'settings home', expect: ['Settings', 'Profile', 'Integrations'] },
+		{ path: '/settings/appearance', label: 'appearance', expect: ['Appearance', 'Mode', 'Themes'] },
 		// A fresh QA account has captures but no history: streak/voice/coverage
 		// render from the list alone, so these hold without any review session.
 		{ path: '/settings/analytics', label: 'analytics', expect: ['Your numbers', 'Streak'] },
@@ -490,6 +492,107 @@ async function main() {
 	await page.evaluate(`sessionStorage.removeItem('thinklot.ai.v1.config'); true`);
 
 	await page.screenshot(`${SHOTS}/idea-ai.png`);
+
+	console.log('\n== appearance: mode, import, type size ==');
+	await page.goto(`${BASE}/settings/appearance`);
+	await waitForAll(page, ['Appearance', 'Mode', 'Themes'], 'appearance');
+
+	// Mode switch persists and paints.
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Dark').click()
+	`);
+	await sleep(400);
+	const darkened = await page.evaluate(`({
+		theme: document.documentElement.dataset.theme,
+		stored: localStorage.getItem('thinklot:theme-mode')
+	})`);
+	check('dark mode paints and persists', darkened.theme === 'dark' && darkened.stored === 'dark', JSON.stringify(darkened));
+	// Back to a neutral state for the rest of the suite.
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Light').click()
+	`);
+	await sleep(400);
+
+	// Type size applies at the root and persists.
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Large').click()
+	`);
+	await sleep(400);
+	const scaled = await page.evaluate(`({
+		size: document.documentElement.style.fontSize,
+		stored: localStorage.getItem('thinklot:font-scale')
+	})`);
+	check('large type applies and persists', scaled.size === '115%' && scaled.stored === 'large', JSON.stringify(scaled));
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Default').click()
+	`);
+	await sleep(300);
+
+	// Import end to end: paste, preview, keep, verify active, delete the evidence.
+	// A partial theme (two accents) also proves gap-filling names itself.
+	//
+	// The sleeps between fill, preview and keep are load-bearing, not cautious:
+	// Svelte re-renders off the input event on its own tick, so clicking Preview
+	// in the same evaluate runs against the previous render - where the button is
+	// still disabled and the click silently does nothing.
+	await page.evaluate(`
+		(() => {
+			const ta = document.querySelector('textarea');
+			ta.value = '{"name":"QA Theme","light":{"signal":"#b3541e"},"dark":{"signal":"#e09a5f"}}';
+			ta.dispatchEvent(new Event('input', { bubbles: true }));
+			return true;
+		})()
+	`);
+	await sleep(500);
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => /preview import/i.test(b.textContent)).click()
+	`);
+	await sleep(500);
+	const previewed = await page.evaluate(`document.body.innerText`);
+	check('import previews and names its gap-filling', /reads clean/.test(previewed), previewed.slice(0, 200));
+	// Guarded: if the preview did not render, clicking nothing must fail this
+	// check, not throw the harness into the wall.
+	const keepClicked = await page.evaluate(`
+		(() => {
+			const btn = [...document.querySelectorAll('button')].find(b => /keep this theme/i.test(b.textContent));
+			if (!btn) return false;
+			btn.click();
+			return true;
+		})()
+	`);
+	check('imported theme kept', keepClicked, 'no Keep button - preview did not render');
+	await sleep(500);
+	const kept = await page.evaluate(`({
+		active: localStorage.getItem('thinklot:theme-active'),
+		body: document.body.innerText.slice(0, 2000)
+	})`);
+	check('imported theme activates', kept.active !== null && kept.active !== 'default' && kept.body.includes('QA Theme'), JSON.stringify(kept.active));
+	// Delete it: the suite must not leave a custom theme active for later runs.
+	const deleteClicked = await page.evaluate(`
+		(() => {
+			const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Delete');
+			if (!btn) return false;
+			btn.click();
+			return true;
+		})()
+	`);
+	check('imported theme offered for deletion', deleteClicked, 'no Delete button rendered');
+	await sleep(500);
+	const cleaned = await page.evaluate(`({
+		active: localStorage.getItem('thinklot:theme-active'),
+		customs: localStorage.getItem('thinklot:themes-custom')
+	})`);
+	check('imported theme deleted cleanly', cleaned.active === 'default' && cleaned.customs === '[]', JSON.stringify(cleaned));
+
+	// Leave no trace: the dark-mode section below depends on a neutral theme
+	// state, and this block persisted mode=light mid-run. System restores the
+	// boot default; Default type is already neutral at 100%.
+	await page.evaluate(`
+		[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'System').click()
+	`);
+	await sleep(300);
+
+	await page.screenshot(`${SHOTS}/appearance.png`);
 
 	console.log('\n== the dashboard tells the truth about this account ==');
 	/**

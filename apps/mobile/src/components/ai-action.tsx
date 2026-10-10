@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
-import { Button, Failure, Note, usePalette } from "./ui";
+import { Button, Failure, Note, useFontMult, usePalette } from "./ui";
 import {
   callModel,
   providerById,
@@ -49,6 +49,7 @@ export function AiAction({
   timeoutMs?: number;
 }) {
   const c = usePalette();
+  const fm = useFontMult();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
   const [hint, setHint] = useState<string>();
@@ -139,14 +140,14 @@ export function AiAction({
           onPress={() => void onRun()}
         />
         {needsSetup ? (
-          <Text style={{ color: c.ink2, fontSize: 13, flex: 1 }}>
+          <Text style={{ color: c.ink2, fontSize: Math.round(13 * fm), flex: 1 }}>
             Needs a provider and key.{" "}
             <Text style={{ color: c.signal }} onPress={() => router.push("/ai-settings")}>
               Set one up
             </Text>
           </Text>
         ) : !running && !answer ? (
-          <Text style={{ color: c.ink2, fontSize: 13, flex: 1 }}>{consent}</Text>
+          <Text style={{ color: c.ink2, fontSize: Math.round(13 * fm), flex: 1 }}>{consent}</Text>
         ) : null}
       </View>
       <Failure message={error} />
@@ -163,8 +164,8 @@ export function AiAction({
           }}
           accessibilityLiveRegion="polite"
         >
-          <Text style={{ color: c.ink, fontSize: 14, lineHeight: 21 }}>{answer.text}</Text>
-          <Text style={{ color: c.muted, fontSize: 11 }}>
+          <Text style={{ color: c.ink, fontSize: Math.round(14 * fm), lineHeight: Math.round(21 * fm) }}>{answer.text}</Text>
+          <Text style={{ color: c.muted, fontSize: Math.round(11 * fm) }}>
             {answer.model} · {answer.ms}ms
           </Text>
         </View>

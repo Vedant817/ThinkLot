@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { usePalette } from "../components/ui";
+import { useFontMult, usePalette } from "../components/ui";
 import { useConnectionStatus } from "./connection-state";
 import { client } from "./convex";
 
@@ -36,6 +36,7 @@ import { client } from "./convex";
  */
 export function ConnectionBanner() {
 	const c = usePalette();
+	const fm = useFontMult();
 	const status = useConnectionStatus(client);
 	/*
 	 * Below the status bar, not under it.
@@ -88,14 +89,14 @@ export function ConnectionBanner() {
 			data-testid="connection-banner"
 		>
 			<View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-				<Text style={{ color: c.ink, fontSize: 13, flex: 1, fontWeight: 500 }}>
+				<Text style={{ color: c.ink, fontSize: Math.round(13 * fm), flex: 1, fontWeight: 500 }}>
 					Offline — ideas may not save
 				</Text>
 				{/*
 				  Dismissible, because a banner that cannot be closed is a banner that
 				  gets ignored. It clears itself on reconnect anyway.
 				*/}
-				<Text onPress={() => setGone(true)} style={{ color: c.muted, fontSize: 12 }}>
+				<Text onPress={() => setGone(true)} style={{ color: c.muted, fontSize: Math.round(12 * fm) }}>
 					Dismiss
 				</Text>
 			</View>
