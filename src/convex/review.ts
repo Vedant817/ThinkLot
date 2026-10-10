@@ -284,8 +284,17 @@ export const decide = mutation({
 		 * database copy can answer. Substituted here, server-side.
 		 */
 		if (patch.statusBeforeArchive === 'keep') {
-			patch.statusBeforeArchive =
-				idea.status === 'parked' ? (idea.statusBeforeArchive ?? undefined) : idea.status;
+			/*
+			 * Record the actual stage, including `parked`.
+			 *
+			 * This had the same special-case `setArchived` carried: parked ideas
+			 * stored nothing, so letting go from a dated park and restoring came
+			 * back as inbox. A device run proved that path wrong there; the same
+			 * reasoning holds here, and `letGo` already clears `revisitAt` itself,
+			 * so there is no date left to argue about - only the stage, which was
+			 * parked.
+			 */
+			patch.statusBeforeArchive = idea.status;
 		}
 		if (clearLetGo) {
 			// Trying or parking an idea forgets the abandonment, and with it the stage
