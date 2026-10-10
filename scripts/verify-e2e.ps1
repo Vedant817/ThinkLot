@@ -197,6 +197,21 @@ Check "committing to a restored idea is accepted" ($tryAgain.status -eq 'success
 $triedAgain = (Call 'ideas:get' (@{ ideaId=$journeyId } | ConvertTo-Json -Compress) $tokenA).value.idea
 Check "and the held stage is forgotten, not silently retained" ($null -eq $triedAgain.statusBeforeArchive) "-> statusBeforeArchive=$($triedAgain.statusBeforeArchive)"
 Check "committing puts it in ready" ($triedAgain.status -eq 'ready') "-> status=$($triedAgain.status)"
+# A parked idea archived and restored must come back PARKED, not inbox.
+# A device run caught this: park 7d, archive, restore, and the dated park the user
+# had deliberately set was silently discarded - the idea came back as inbox and
+# reappeared in the review queue immediately instead of in 7 days. `parked` is a
+# real stage, not the archive's scratch value, so the server remembers it like any
+# other stage.
+$parkJourney = (Call 'ideas:capture' (@{ title='parked archive round-trip' } | ConvertTo-Json -Compress) $tokenA 'mutation').value
+$null = Call 'review:decide' (@{ ideaId=$parkJourney; outcome='park'; inDays=7 } | ConvertTo-Json -Depth 6 -Compress) $tokenA 'mutation'
+$parkedRow = (Call 'ideas:get' (@{ ideaId=$parkJourney } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "parking puts it in parked" ($parkedRow.status -eq 'parked') "-> status=$($parkedRow.status)"
+$null = Call 'ideas:setArchived' (@{ ideaId=$parkJourney; archived=$true } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$null = Call 'ideas:setArchived' (@{ ideaId=$parkJourney; archived=$false } | ConvertTo-Json -Compress) $tokenA 'mutation'
+$parkRestored = (Call 'ideas:get' (@{ ideaId=$parkJourney } | ConvertTo-Json -Compress) $tokenA).value.idea
+Check "a parked idea comes back parked, not inbox" ($parkRestored.status -eq 'parked') "-> status=$($parkRestored.status)"
+Check "and its revisit date survives the round-trip" ($parkRestored.revisitAt -eq $parkedRow.revisitAt) "-> revisitAt=$($parkRestored.revisitAt)"
 
 Write-Host "`n== 9. revisitAt validation ==" -ForegroundColor Cyan
 # revisitAt had no validation while every sibling numeric field was range-checked,

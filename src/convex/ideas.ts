@@ -848,7 +848,28 @@ export const setArchived = mutation({
 			archived: args.archived,
 			status: args.archived ? 'parked' : (remembered ?? args.statusBeforeArchive ?? 'inbox'),
 			...(args.archived
-				? { statusBeforeArchive: idea.status === 'parked' ? (remembered ?? undefined) : idea.status }
+				/*
+				 * Remember the ACTUAL stage, including `parked`.
+				 *
+				 * This used to store nothing when the idea was already parked
+				 * (`idea.status === 'parked' ? (remembered ?? undefined) : idea.status`),
+				 * on the theory that `parked` is the archive's own scratch value rather
+				 * than a real stage. A device run proved that theory wrong: park an idea
+				 * for 7 days, archive it, restore it, and it came back as `inbox` - the
+				 * dated park the user had deliberately set was silently discarded.
+				 *
+				 * `parked` IS a real stage here. The archive forces status to `parked`
+				 * while away, so without a stored value there is no way to tell "was
+				 * parked with a revisit date" from "was parked as scratch". The revisit
+				 * date itself survives (this patch never touches it), but with status
+				 * `inbox` the queue shows the idea immediately instead of in 7 days.
+				 *
+				 * Remembering `parked` cannot regress the case the special-case was
+				 * written for: the old bug was READING the stage from the client's
+				 * stale `parked` row, and the client hint is still only a fallback for
+				 * legacy rows with nothing stored.
+				 */
+				? { statusBeforeArchive: idea.status }
 				: { statusBeforeArchive: undefined }),
 			updatedAt: nowMs()
 		});

@@ -348,7 +348,13 @@ export default function IdeaDetail() {
             {maturity && maturity.missing.length > 0 ? (
               <Note>Still missing: {maturity.missing.join(", ")}</Note>
             ) : null}
-            <Label>Stage</Label>
+            {/*
+              Stage, as one row of labelled chips.
+
+              The "Stage" caption is gone: the six buttons each name their own stage,
+              so a heading above them repeated what the buttons already said. That is
+              the pattern a device run flagged - a caption restating the control.
+            */}
             <View style={styles.row}>
               {IDEA_STATUSES.map((stage) => (
                 <Button
@@ -362,7 +368,13 @@ export default function IdeaDetail() {
               ))}
             </View>
             <Label>Priority</Label>
-            <Note>(Impact × Confidence) / Effort. Each score is 1–10.</Note>
+            {/*
+              The formula stays, the "Each score is 1–10" sentence goes. The 1–10 range
+              is already enforced by the controls - the decrease button disables at 1 and
+              the increase button at 10 - so stating it as prose is a caption describing
+              behaviour the buttons already show.
+            */}
+            <Note>(Impact × Confidence) / Effort.</Note>
             {(["impact", "effort", "confidence"] as const).map((key) => (
               <View key={key} style={styles.section}>
                 <Label>
@@ -530,7 +542,13 @@ export default function IdeaDetail() {
               {events.length > 0 ? (
                 <>
                   <Label>History</Label>
-                  <Note>Newest first.</Note>
+                  {/*
+                    "Newest first." is gone. It was a caption describing the ordering
+                    of the list immediately below it, which the ordering itself already
+                    demonstrates - and every event carries a `relativeDay`, so the newest
+                    is visibly the newest. Captions that describe what the reader can
+                    already see are the clutter this pass removed.
+                  */}
                   {events.map((event: { id: string; kind: string; detail: string | null; createdAt: number }) => (
                     <Note key={event.id}>
                       {describeEvent(event.kind, event.detail)} · {relativeDay(event.createdAt)}
@@ -545,8 +563,18 @@ export default function IdeaDetail() {
               disabled={busy}
               onPress={() => void act(() => favorite({ ideaId: idea._id }))}
             />
+            {/*
+              "Restore", not "Restore to inbox".
+
+              It used to say "to inbox", which described the buggy behaviour rather
+              than the contract: restore returns the idea to the stage it was
+              archived from (inbox, parked with its revisit date, ready - whatever it
+              was), and a device run caught the parked case coming back as inbox when
+              it should have come back parked. The label now promises what the server
+              does.
+            */}
             <Button
-              title={idea.archived ? "Restore to inbox" : "Archive idea"}
+              title={idea.archived ? "Restore" : "Archive idea"}
               disabled={busy}
               onPress={() =>
                 void act(() =>
