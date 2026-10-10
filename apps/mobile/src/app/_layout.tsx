@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useColorScheme } from "react-native";
 import { tokenStorage } from "../lib/auth";
 import { Heading, Note, Page, usePalette } from "../components/ui";
+import { ConnectionBanner, connectionStatus } from "../lib/connection";
 
 const url = process.env.EXPO_PUBLIC_CONVEX_URL;
 const configured = !!url && /^https:\/\/[^/]+\.convex\.cloud\/?$/.test(url);
@@ -31,6 +32,20 @@ function Routes() {
         <Stack.Screen name="idea/[id]" options={{ title: "Idea details" }} />
       </Stack.Protected>
       <Stack.Screen name="+not-found" options={{ title: "Page not found" }} />
+
+      {/*
+        The offline banner.
+
+        Mounted here, above every screen, because a transport failure is not a screen
+        problem: it applies to the whole app and must not be duplicated per-tab.
+
+        `client` is read at subscribe time rather than at render time - the Convex
+        client re-runs queries when its connection state turns over, so this is always
+        current without a timer. On the first connection the state is `idle`, and the
+        banner deliberately stays silent: "offline" during a cold start is a false
+        alarm.
+      */}
+      {client ? <ConnectionBanner status={connectionStatus(client)} /> : null}
     </Stack>
   );
 }

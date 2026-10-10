@@ -107,14 +107,18 @@ const ALIASES: Record<AliasedField, string[]> = {
 	trigger: ['trigger', 'origin', 'context', 'why now', 'where it came from', 'feedback', 'requested by'],
 	tags: [
 		'tags', 'labels', 'label', 'components', 'component', 'keywords', 'category',
-		// Deliberately NOT `status`, `issue type` or `type`. Jira's workflow status
-		// ("In Progress") and work type ("Story") become `#in progress` and `#story`
-		// - noise that means nothing in a personal idea lot, where `status` already
-		// exists with a different set of values. Those columns belong in the unmapped
-		// report, which is what it is for. `Priority` stays: "was high priority" is
-		// real information about the idea, not metadata about the ticket.
-		'priority',
-		'epic', 'epic link', 'sprint', 'milestone', 'version', 'fix version', 'affects version'
+		/*
+		 * Only the user's OWN labels of the idea.
+		 *
+		 * `Sprint`, `Priority` and `Component` were all here once. A real Jira fixture
+		 * proved it wrong: an export imported as `#2026-03-s1`, `#high` and `#clinic` -
+		 * ticket metadata that is noise on an idea. Those columns are deliberately
+		 * unmapped, which puts them in the report where the user can see the tool had
+		 * them, rather than polluting the idea's tags.
+		 *
+		 * Verified against `scripts/verify-jira-fixture.ts`, which parses a real export.
+		 */
+		'epic', 'epic link', 'milestone', 'version', 'fix version', 'affects version'
 	],
 	transcript: []
 };
