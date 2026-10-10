@@ -344,9 +344,56 @@ inspected - whose they are was not opened. Deletion is staged, not done: it	ouch
 OWNER_EMAIL is set to the owner's address on dev. Web suite 99/99 (one transient
 stall on re-run review, green on retry - stated as flake, not hidden).
 
+## Sixth run: settings home, custom themes, type size
+
+### Settings + integrations (both clients)
+
+Web has `/settings` home: Profile (email + sign out), section links, and an
+Integrations section showing live AI-key state per provider with Manage links.
+Mobile Account restructured the same way: Profile with sign-out moved up beside
+the email, Integrations with keychain-fresh status (useFocusEffect, never
+cached), Appearance link. Sidebar gained a Settings entry; existing entries kept.
+
+### Themes as data (`src/lib/theme.ts`)
+
+One 21-token definition for both modes, DEFAULT_THEME as single source of truth
+(web css-var names and mobile palette names both map from it). Builder on web
+(21 tokens × light/dark via native color inputs, grouped, live contrast notes)
+and phone (6 accents/surfaces per mode via swatches + hex, stated limit).
+Import/export is the same JSON both directions - a phone-built theme opens on
+the browser whole. Contrast notes are advisory, never a save-block. Two bugs
+found while building: the store defaulted to light while boot defaulted to
+system (dark-OS fresh users flashed then overrode - both say system now), and
+top-level `splash` in app.json is inert in SDK 57 (moved to plugin props).
+
+### Type size
+
+Web root font-size (90/100/115/130%) persisted; phone multiplier through
+`useFontMult()` in every primitive plus all 16 inline sizes across 7 files.
+XL verified on device: wraps, never breaks (tab labels truncate at 1.3x -
+stated, accepted).
+
+### Verified
+
+- verify-web 114/114: settings home, appearance render, dark persist, font
+persist, import preview/keep/activate/delete with cleanup, Decide-later
+presence. Two harness-environment traps hit and fixed: adapter-node needs env
+passed explicitly (suite was testing a dead server), and Svelte re-renders
+between programmatic fill and click (sleeps are load-bearing, commented).
+- Device: account restructure, appearance render, light switch instant,
+custom theme built/saved/active repainting the app, XL wrapping, all four
+choices persisted in AsyncStorage and applied on cold boot, import refusal
+renders. Mobile import *success* path not driven (device input drops JSON
+punctuation) - same parser unit-tested, same wiring as transfer import,
+web e2e covers the UX.
+- Gates: svelte-check 0/0, mobile tsc 0, lint 0, offline suite green, parity
+33/33, theme gate extended (DEFAULT three-way agreement, import round-trips,
+refusals, font math).
+
 ## Not verified
 
 - iOS is untouched
+
 
  and Mac-only. `verify:contracts` verifies 16 Convex function
   contracts by parsing the Swift structs; Swift compilation remains unverifiable here.
