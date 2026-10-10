@@ -145,6 +145,10 @@
 		// Your numbers. Listed with the other settings because it is read-only and
 		// personal: computed from the user's own rows, compared against nobody.
 		{ href: '/settings/analytics', label: 'Your numbers', soon: false },
+		// Settings home: profile, sections, integrations. Listed with the other
+		// settings destinations rather than above them - it is the map, not a
+		// destination above the rest.
+		{ href: '/settings', label: 'Settings', soon: false },
 		// Import and export. Listed after AI for the same reason: optional, and only
 		// matters to someone who intends to move or back up.
 		{ href: '/settings/transfer', label: 'Import / export', soon: false }

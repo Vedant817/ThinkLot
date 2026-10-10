@@ -11,35 +11,25 @@
  * comment was wrong, which is the worst combination. So the claim is executable now.
  *
  * Read from the source of truth in both clients, so the two palettes cannot drift
- * without this failing: web `layout.css`, mobile `components/ui.tsx`.
+ * without this failing: web `layout.css`, mobile `components/ui.tsx` - and both
+ * against `src/lib/theme.ts` DEFAULT_THEME, so the shared definition cannot drift
+ * from either client either. Three-way agreement, or the gate fails.
  */
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-
-/**
- * WCAG 2.1 relative luminance. The maths is the spec's, not an approximation.
- */
-function luminance(hex: string): number {
-	const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-	if (!m) throw new Error(`not a 6-digit hex colour: "${hex}"`);
-	const value = parseInt(m[1], 16);
-	const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((raw) => {
-		const c = raw / 255;
-		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-	});
-	return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
-
-function contrast(a: string, b: string): number {
-	const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-	return (hi + 0.05) / (lo + 0.05);
-}
-
-/** WCAG 1.4.3 - normal body text. */
-const AA_TEXT = 4.5;
-/** WCAG 1.4.11 - non-text boundaries, e.g. the only outline on an input. */
-const AA_NON_TEXT = 3;
+import {
+	contrast,
+	AA_TEXT,
+	AA_NON_TEXT,
+	DEFAULT_THEME,
+	TOKEN_KEYS,
+	parseThemeImport,
+	validateTheme,
+	fontMult,
+	scaled,
+	type ThemeTokens
+} from '../src/lib/theme';
 
 // ---------------------------------------------------------------- web tokens
 
@@ -195,6 +185,99 @@ for (const [mobileKey, webKey] of pairs) {
 				`(${theme.w[webKey]}) have drifted apart`
 		);
 	}
+}
+
+// ------------------------------------------------- three-way agreement
+//
+// The shared DEFAULT_THEME must equal both clients, token for token. This is
+// the assertion that makes "single source of truth" a fact rather than a
+// comment: change a value in one place without the others and the gate fails
+// naming the token and the mode.
+{
+	// css `--rule-strong` style names to canonical keys.
+	const webToCanonical: Record<string, string> = {
+		paper: 'paper', panel: 'panel', sunk: 'sunk', rule: 'line', 'rule-strong': 'lineStrong',
+		ink: 'ink', 'ink-2': 'ink2', 'ink-3': 'muted', signal: 'signal', 'signal-ink': 'signalInk',
+		'signal-soft': 'signalSoft', lot: 'lot', 'lot-soft': 'lotSoft', ok: 'ok', 'ok-soft': 'okSoft',
+		warn: 'warn', 'warn-soft': 'warnSoft', bad: 'danger', 'bad-soft': 'dangerSoft',
+		good: 'good', 'good-soft': 'goodSoft'
+	};
+	for (const mode of ['light', 'dark'] as const) {
+		const expected = DEFAULT_THEME[mode] as unknown as Record<string, string>;
+		const sources = { web: mode === 'light' ? light : dark, mobile: mode === 'light' ? mobileLight : mobileDark };
+		for (const key of TOKEN_KEYS) {
+			// Web side: find the css var that maps to this canonical key.
+			const cssVar = Object.keys(webToCanonical).find((v) => webToCanonical[v] === key)!;
+			assert.equal(
+				sources.web[cssVar],
+				expected[key],
+				`web ${mode} --${cssVar} differs from DEFAULT_THEME.${mode}.${key}`
+			);
+			// Mobile side: every canonical key except the *-soft set and warn pair,
+			// which the phone never reads (it uses signalSoft/lotSoft + ok/good/danger only).
+			if (key.endsWith('Soft') && key !== 'signalSoft' && key !== 'lotSoft') continue;
+			if (key === 'warn' || key === 'warnSoft') continue;
+			assert.ok(key in sources.mobile, `mobile ${mode} palette is missing ${key} that DEFAULT_THEME defines`);
+			assert.equal(
+				(sources.mobile as Record<string, string>)[key],
+				expected[key],
+				`mobile ${mode} ${key} differs from DEFAULT_THEME.${mode}.${key}`
+			);
+		}
+	}
+}
+
+// --------------------------------------------- import/export + font scale
+
+{
+	// A full theme round-trips byte-identically through export and import.
+	const exported = JSON.stringify({ version: 1, id: 'x', name: 'Round trip', light: DEFAULT_THEME.light, dark: DEFAULT_THEME.dark });
+	const parsed = parseThemeImport(exported);
+	assert.equal(parsed.ok, true, 'a well-formed export must import');
+	if (parsed.ok) {
+		assert.deepEqual(parsed.theme.light, DEFAULT_THEME.light, 'light survives the round trip');
+		assert.deepEqual(parsed.theme.dark, DEFAULT_THEME.dark, 'dark survives the round trip');
+		assert.deepEqual(parsed.filled, [], 'nothing needs filling on a full export');
+		// Imported ids are unique per import, so two imports of the same file are
+		// two themes, not a collision.
+		const again = parseThemeImport(exported);
+		assert.ok(again.ok && again.theme.id !== parsed.theme.id, 're-import mints a fresh id');
+	}
+
+	// A partial theme fills from the built-in and SAYS SO.
+	const partial = parseThemeImport(
+		JSON.stringify({ name: 'Accents', light: { signal: '#ff0000' }, dark: { signal: '#00ff00' } })
+	);
+	assert.equal(partial.ok, true, 'a partial theme imports');
+	if (partial.ok) {
+		assert.equal(partial.theme.light.signal, '#ff0000', 'the override wins');
+		assert.equal(partial.theme.light.paper, DEFAULT_THEME.light.paper, 'gaps fill from built-in');
+		assert.ok(partial.filled.length > 0, 'filled tokens are reported');
+		assert.ok(partial.warnings.length > 0, 'a pure-red signal on white warns about contrast');
+	}
+
+	// Refusals, each with a message a user can act on.
+	for (const bad of [
+		'not json at all',
+		'[1,2,3]',
+		JSON.stringify({ name: '', light: {}, dark: {} }),
+		JSON.stringify({ name: 'No modes' }),
+		JSON.stringify({ name: 'Bad hex', light: { paper: 'red' }, dark: {} }),
+		JSON.stringify({ name: 'x'.repeat(61), light: {}, dark: {} })
+	]) {
+		const r = parseThemeImport(bad);
+		assert.equal(r.ok, false, `must refuse: ${bad.slice(0, 40)}`);
+		if (!r.ok) assert.ok(r.error.length > 10, 'refusals explain themselves');
+	}
+
+	// validateTheme agrees with the gate above on the built-in.
+	assert.deepEqual(validateTheme(DEFAULT_THEME), { light: [], dark: [] }, 'built-in validates clean');
+
+	// Font scale is a closed set with a safe fallback.
+	assert.equal(fontMult('default'), 1, 'default is unity');
+	assert.equal(fontMult('nope'), 1, 'unknown scale degrades to unity, not zero or NaN');
+	assert.equal(scaled(15, 'large'), 17, '15pt at 1.15 rounds to 17');
+	assert.ok(scaled(10, 'compact') >= 8, 'minimum 8pt floor holds');
 }
 
 console.log('PASS: every ink token clears WCAG AA on every surface, and the two clients are still one palette.');

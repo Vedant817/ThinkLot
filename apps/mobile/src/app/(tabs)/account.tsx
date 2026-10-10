@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { router } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../lib/api";
 import { useLiveQuery } from "../../lib/live-query";
 import { errorMessage } from "../../lib/auth";
 import { Transfer } from "../../components/transfer";
 import { YourNumbers } from "../../components/your-numbers";
+import { Integrations } from "../../components/integrations";
 import {
   Button,
   Failure,
   Heading,
+  Label,
   Loading,
   Note,
   Page,
@@ -34,31 +35,41 @@ export default function Account() {
     <Page>
       <Heading title="Your lot." />
       <Failure message={profile.error} retry={profile.retry} />
+      {/*
+        Profile: who is signed in, and the way out, together. The sign-out button
+        used to sit at the bottom of a long screen, below import/export - the one
+        control people look for when something is wrong with their account was the
+        furthest from the account it belongs to.
+      */}
+      <Label>Profile</Label>
       {profile.data ? (
         <Note>{profile.data.email}</Note>
       ) : (
         !profile.error && <Loading />
       )}
+      <Button
+        title={busy ? "Signing out…" : "Sign out"}
+        disabled={busy}
+        onPress={() => void logout()}
+      />
+      <Failure message={error} />
       <Note>
         Your ideas sync with the same account on web and mobile. Theme follows
         your device.
       </Note>
       {/*
-        AI settings live on their own screen rather than inline here. The provider
-        picker alone is eight buttons plus a key field, a model field and a test -
-        inline it would bury import/export, which is what this screen is about.
+        Integrations: what this app connects to, and what it holds for each.
+        Status loads on every focus rather than once: a key forgotten on the AI
+        screen and a status here that still claims it is the exact staleness this
+        section exists to prevent.
       */}
-      <Button
-        title="AI providers & keys"
-        onPress={() => router.push("/ai-settings")}
-      />
+      <Integrations />
       {/*
         Four personal numbers, computed from rows the lot query already holds.
         Placed before import/export: this screen is about the user's data, and
         these four sentences are the most-read thing on it.
       */}
       <YourNumbers />
-      <Failure message={error} />
 
       {/*
         Import and export live here rather than on their own tab: they are about the
@@ -66,12 +77,6 @@ export default function Account() {
         used twice a year would be a worse trade.
       */}
       <Transfer />
-
-      <Button
-        title={busy ? "Signing out…" : "Sign out"}
-        disabled={busy}
-        onPress={() => void logout()}
-      />
     </Page>
   );
 }
