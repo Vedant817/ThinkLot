@@ -328,6 +328,22 @@ locked-owner route, and Decide-later presence.
 heartbeat guard key present in AsyncStorage (written only after a successful
 mutation), and today's rollup includes it.
 
+## Owner gate: positive path proven, bloat quantified
+
+The lock was proven; the open side was not (it needs the owner's session). Proved
+it without touching theirs: OWNER_EMAIL pointed at a throwaway probe account for one
+minute, owner:stats returned the 2 daily rows (all 36 metric keys, no PII in any
+key), then the variable was restored to the owner's address and the probe refused
+again. Temporary elevation, verified both directions, nothing left behind.
+
+Same probe gave the bloat numbers, now on the /owner page as an overview strip
+(gated, counts only): **596 accounts (590 @example.com fixtures, 6 other), 3269
+ideas, 4770 events, uncapped.** The 6 non-example accounts were counted, not
+inspected - whose they are was not opened. Deletion is staged, not done: it	ouches the auth tables and stays unasked-for until approved.
+
+OWNER_EMAIL is set to the owner's address on dev. Web suite 99/99 (one transient
+stall on re-run review, green on retry - stated as flake, not hidden).
+
 ## Not verified
 
 - iOS is untouched
