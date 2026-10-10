@@ -220,9 +220,67 @@ blocks it — and hand-editing the generated `android/` is against the repo rule
 and dropping expo-router (a rewrite, not a tweak). The floor for an Expo app is
 ~25–35MB; this one at 42MB is near it, not far above it.
 
+## Fourth run: AI on the phone, Decide later, drag, splash
+
+### AI settings + per-idea panel, verified on hardware
+
+`ai-credentials.ts` existed with zero importers. It is now wired: an "AI providers
+& keys" route off Account (all 8 providers from the shared registry, local first;
+session/device modes; masked key + Forget; model field with suggestion chips; Test
+connection with a real 8-token call). Verified with a bogus OpenAI key: save masks
+(`sk-b••••••••ly · saved`), Test returns "OpenAI returned 401 - the key was rejected."
+with the corrective hint, Forget restores the empty state, switching providers shows
+each provider's own key slot, and an app restart drops session state back to
+defaults. A real success call was never made - no key, no spend - so the happy path
+is unit-asserted, not device-proven.
+
+The idea detail has Summarise plus the duplicates check against the server
+shortlist, with the shortlist visible. Unconfigured shows "Needs a provider and
+key. Set one up" up front (the first version only discovered it on press) and the
+link deep-links to settings. With the bogus key, Summarise renders the 401
+sentence inline. Per-provider key namespacing, session expiry on restart, and the
+secure (non-echoing) key field were all observed, not assumed.
+
+### Web was dropping every model answer
+
+`AiAction.svelte` awaited `callModel` and discarded the result: pressing Summarise
+spent money and showed nothing, and the suite passed anyway because it only
+asserted preconditions. Both clients now take a required `parseResult` and render
+the parsed answer (or report unusable output as a failure, not silence). The idea
+page formats duplicate pairs against the shortlist with the same id-allowlist the
+parser enforces.
+
+### Decide later exists on both clients
+
+`skip` was server-ready (event-only effect) but unreachable. Both review screens
+have the button; since the server deliberately changes nothing, the row hides for
+the session and returns next time. Verified on device: "3 shown of 4 · 1 left for
+later", and History records "left for later · today". Same parked special-case as
+the archive fix lived in the letGo `keep` substitution; removed for the same
+reason, deployed to dev.
+
+### Board drag works
+
+Two synthetic drags appeared to do nothing; instrumented tracing showed grant +
+drop reaching JS, and the drop point (320dp) landing 19dp short of the parked
+column - the mechanism was fine, the test's aim was not. A further drag moved
+LOT-0007 inbox → parked on device. Tracing removed afterwards. Side observation:
+same-stage drops (from the missed attempts) write "Moved from inbox to inbox"
+history events - `setStatus` records even a no-op. Noted, not changed.
+
+### Splash, captured
+
+Cold-start screenshot shows the dark slate surface, no white flash. Caveat found
+while at it: top-level `splash` in app.json is inert in SDK 57 (generated
+`#FFFFFF`) - it has to live in `expo-splash-screen` plugin props, which now emit
+`#171920`. Also: `C:\tl` builds never re-run prebuild, so no app.json plugin
+change ever took effect in any build until a manual prebuild was run; the final
+release below is the first build with the real splash config.
+
 ## Not verified
 
-- iOS is untouched and Mac-only. `verify:contracts` verifies 16 Convex function
+- iOS is untouched
+ and Mac-only. `verify:contracts` verifies 16 Convex function
   contracts by parsing the Swift structs; Swift compilation remains unverifiable here.
 - `decide later` (`skip`) is defined in `src/lib/review.ts` and reachable from neither
   client, so a user cannot make that decision at all. Left as an open design question.
