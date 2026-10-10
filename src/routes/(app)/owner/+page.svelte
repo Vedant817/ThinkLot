@@ -55,8 +55,18 @@
 
 	type Me = { email: string | null } | null;
 
+	type Overview = {
+		totalUsers: number;
+		testUsers: number;
+		otherUsers: number;
+		totalIdeas: number;
+		totalEvents: number;
+		truncated: boolean;
+	} | null;
+
 	let statsHandle = $state<QueryHandle<DayRow[] | undefined> | null>(null);
 	let meHandle = $state<QueryHandle<Me | undefined> | null>(null);
+	let overviewHandle = $state<QueryHandle<Overview | undefined> | null>(null);
 
 	$effect(() => {
 		// The gate refusal is the normal state here, not a failure: silent so a
@@ -65,11 +75,16 @@
 			silent: true
 		});
 		const b = watchQuery<Me | undefined>(convex.client!, api.users.current, {});
+		const c = watchQuery<Overview | undefined>(convex.client!, api.owner.overview, {}, undefined, {
+			silent: true
+		});
 		statsHandle = a;
 		meHandle = b;
+		overviewHandle = c;
 		return () => {
 			a.dispose();
 			b.dispose();
+			c.dispose();
 		};
 	});
 
@@ -77,6 +92,7 @@
 	const latest = $derived(rows[0]);
 	const locked = $derived(statsHandle?.error != null);
 	const me = $derived(meHandle?.current);
+	const overview = $derived(overviewHandle?.current);
 
 	/** Percentages of tiny cohorts identify; counts do not. */
 	function share(pct: number, dau: number): string {
@@ -114,6 +130,15 @@
 			no users, no emails, no idea text. Percentages hide below 5 daily actives.
 			{latest.verified ? '' : 'Latest row failed reconciliation — treat it as suspect.'}
 		</p>
+
+		{#if overview}
+			<p class="mt-3 font-mono text-[12px] text-ink-3" data-numeric="true">
+				{overview.totalUsers} accounts ({overview.testUsers} test fixtures, {overview.otherUsers} other)
+				· {overview.totalIdeas} ideas · {overview.totalEvents} events{overview.truncated ? ' · counts capped' : ''}.
+				Test accounts are the harness's @example.com addresses, counted by naming
+				convention, not content.
+			</p>
+		{/if}
 
 		<!-- Latest -->
 		<section class="mt-6">

@@ -202,6 +202,16 @@ const strip = (src: string) =>
 	assert.match(rollup, /captures === capturesCheck/, 'captures reconciles two independent counts');
 	assert.match(rollup, /verified/, 'reconciliation result is stored, not just logged');
 
+	// Overview: counts for the bloat question, gated like stats, no addresses.
+	assert.match(rollup, /overview = query/, 'overview is a gated query, not a public dump');
+	assert.match(rollup, /requireOwner\(ctx\)/, 'overview enforces the owner gate');
+	assert.match(rollup, /testUsers/, 'overview splits fixtures from other accounts');
+	assert.doesNotMatch(
+		rollup.replace(/user\.email/g, '').replace(/email\.toLowerCase/g, ''),
+		/return[^;]*\bemail\b/,
+		'overview must not return addresses'
+	);
+
 	// Cron registered daily.
 	const crons = strip(readFileSync('src/convex/crons.ts', 'utf8'));
 	assert.match(crons, /internal\.owner\.rollupDay/, 'rollup is on the schedule');

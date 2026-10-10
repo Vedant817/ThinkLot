@@ -42,6 +42,49 @@ export const stats = query({
 	}
 });
 
+/**
+ * Database overview for the bloat question: how many accounts/ideas/events exist
+ * and how many accounts are obviously test fixtures (@example.com).
+ *
+ * Gated like stats. Returns counts only - never addresses. The test-vs-other
+ * split is a naming-convention heuristic (every harness account uses
+ * @example.com), stated as such on the page rather than presented as exact.
+ */
+export const overview = query({
+	args: {},
+	handler: async (ctx) => {
+		await requireOwner(ctx);
+		const users = await ctx.db.query('users').take(SCAN_LIMIT);
+		let testUsers = 0;
+		let totalIdeas = 0;
+		let totalEvents = 0;
+		let truncated = users.length >= SCAN_LIMIT;
+		for (const u of users) {
+			const email = (u as { email?: unknown }).email;
+			if (typeof email === 'string' && email.toLowerCase().endsWith('@example.com')) testUsers++;
+			const ideas = await ctx.db
+				.query('ideas')
+				.withIndex('by_user', (q) => q.eq('userId', u._id))
+				.take(SCAN_LIMIT);
+			const ev = await ctx.db
+				.query('ideaEvents')
+				.withIndex('by_user_created', (q) => q.eq('userId', u._id))
+				.take(SCAN_LIMIT);
+			totalIdeas += ideas.length;
+			totalEvents += ev.length;
+			if (ideas.length >= SCAN_LIMIT || ev.length >= SCAN_LIMIT) truncated = true;
+		}
+		return {
+			totalUsers: users.length,
+			testUsers,
+			otherUsers: users.length - testUsers,
+			totalIdeas,
+			totalEvents,
+			truncated
+		};
+	}
+});
+
 type Ctx = MutationCtx;
 
 async function optedOutIds(ctx: Ctx): Promise<Set<string>> {
