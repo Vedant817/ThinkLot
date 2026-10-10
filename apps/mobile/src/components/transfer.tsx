@@ -3,17 +3,14 @@ import { Share } from "react-native";
 import { useMutation } from "convex/react";
 import {
   api,
-  backupToImportEntry,
+  importFromPmSource,
   exportFilename,
   findImportDuplicates,
-  parseCsvImport,
-  parseMarkdownImport,
   partitionForImport,
   toBackupJson,
   toCsv,
   toNotionMarkdown,
   type ImportCandidate,
-  type PortableIdea,
 } from "../lib/api";
 import { useLiveQuery } from "../lib/live-query";
 import { errorMessage } from "../lib/auth";
@@ -46,6 +43,11 @@ export function Transfer() {
   const [paste, setPaste] = useState("");
   const [preview, setPreview] = useState<{
     fileName: string;
+    /** What this app thought the file was. Shown, because a guess presented as a
+     *  fact is a lie the user cannot check. */
+    detected: { source: string; label: string; confidence: string; matched: string[]; note?: string };
+    /** Every column this app had no field for. Named, never dropped silently. */
+    unmapped: string[];
     fresh: ImportCandidate[];
     duplicates: { candidate: ImportCandidate; matchesExisting: { id: string; title: string }[] }[];
     unreadable: { source: string; reason: string }[];
@@ -94,12 +96,16 @@ export function Transfer() {
       return;
     }
 
-    const parsed = detectAndParse(text);
+    const { parsed, detected, unmapped } = detectAndParse(text);
     const titles = (lot?.ideas ?? []).map((idea) => ({ _id: idea._id, title: idea.title }));
-    const { fresh, duplicates } = partitionForImport(findImportDuplicates(parsed.candidates, titles));
+    const { fresh, duplicates } = partitionForImport(
+      findImportDuplicates(parsed.candidates, titles),
+    );
 
     setPreview({
       fileName: `${fresh.length + duplicates.length} found`,
+      detected,
+      unmapped,
       fresh,
       duplicates,
       unreadable: parsed.skipped,
@@ -224,6 +230,47 @@ export function Transfer() {
             {preview.unreadable.length ? ` · ${preview.unreadable.length} unreadable` : ""}
           </Note>
 
+          {/* What this app thought the file was, and how sure it is. Shown because a
+              guess presented as a fact is a lie the user cannot check - "Read as Jira"
+              is an invitation to correct it, and either way the import works. */}
+          <Note>
+            Read as {preview.detected.label}
+            {preview.detected.confidence !== "exact" ? " (probably)" : ""}
+            {preview.detected.matched.length > 0 ? ` — saw ${preview.detected.matched.join(", ")}` : ""}
+            {preview.detected.note ? ` — ${preview.detected.note}` : ""}
+          </Note>
+
+          {/* Every column this app had NO field for.
+            Every column this app had NO field for.
+
+            On a phone this matters MORE than on the web, because the phone is where a
+            Jira export usually lands first, and a real one has around 200 columns. A
+            blank version of this line would claim every column was understood, which
+            is never true of a real export - and the importer that says nothing is the
+            one with a bug.
+            one with a bug. */}
+          {preview.unmapped.length > 0 ? (
+            <Note>
+              {preview.unmapped.length} column{preview.unmapped.length === 1 ? "" : "s"} not imported:{" "}
+              {preview.unmapped.slice(0, 12).join(", ")}
+              {preview.unmapped.length > 12 ? ` and ${preview.unmapped.length - 12} more` : ""}
+            </Note>
+          ) : (
+            <Note>Every column in it mapped to a ThinkLot field.</Note>
+          )}
+
+          {/* The description and tags are shown too, so the mapping can be verified
+              before committing to it rather than after. */}
+          {preview.fresh.slice(0, 5).map((entry) => (
+            <Note key={entry.title}>
+              {entry.title}
+              {entry.description || entry.problem
+                ? ` — ${entry.description ?? entry.problem}`
+                : ""}
+              {entry.tags.length ? ` [#${entry.tags.join(" #")}]` : ""}
+            </Note>
+          ))}
+
           {/* Collisions are shown and NOT imported. Skipping silently loses a real
               idea; importing silently doubles the lot. */}
           {preview.duplicates.length > 0 ? (
@@ -259,51 +306,31 @@ export function Transfer() {
 }
 
 /**
- * Format is chosen by CONTENT, not by how the user says it arrived.
+ * Everything about a file, decided the same way for every source.
  *
- * A `.md` that is actually CSV, or a JSON backup renamed, both happen in practice - and
- * guessing wrong produces one nonsense idea instead of a clear message.
+ * Mobile used to have its own three-path guesser (JSON backup, CSV, Markdown). The
+ * shared `pm-import` module replaces it, because a product manager's phone is where
+ * the Jira CSV and the Notion export actually arrive and the differences between
+ * those are which columns they ship - which is what that module knows and this did
+ * not. One implementation, both clients, no drift.
+ *
+ * Returns the parse AND the detection, so the caller keeps no module-level state.
  */
-function detectAndParse(text: string): ReturnType<typeof parseMarkdownImport> {
-  const first = text.replace(/^\s+/, "")[0];
-
-  if (first === "{" || first === "[") {
-    try {
-      const json = JSON.parse(text) as { ideas?: unknown };
-      if (Array.isArray(json.ideas)) {
-        /*
-         * A backup of this app's own export, projected through the SHARED mapping in
-         * lib/portability rather than field-by-field here.
-         *
-         * The export is a full document - `_id`, `seq`, `status`, `tasks`, `favorite`,
-         * `createdAt` - and the import endpoint accepts a writing form. Passing the
-         * export's own fields through fails with "Object contains extra field _id",
-         * which is exactly what happened: the obvious export-then-import round trip
-         * failed outright. One mapping, used by both clients.
-         */
-        const ideas = json.ideas as PortableIdea[];
-        const mapped = ideas
-          .map(backupToImportEntry)
-          .filter((entry): entry is ImportCandidate => entry !== null);
-        return {
-          candidates: mapped,
-          skipped: ideas
-            .map((idea) => ({ idea, entry: backupToImportEntry(idea) }))
-            .filter((row) => row.entry === null)
-            .map((row) => ({
-              source: String(row.idea.title ?? "unnamed"),
-              reason: "no title to import",
-            })),
-        };
-      }
-    } catch {
-      // Falls through; the text parsers will report something useful.
-    }
-  }
-
-  const header = text.split("\n", 1)[0]?.toLowerCase() ?? "";
-  if (header.includes(",") && /(^|[,\s])(title|seq)($|[,\s])/.test(header)) {
-    return parseCsvImport(text);
-  }
-  return parseMarkdownImport(text);
+function detectAndParse(text: string): {
+  parsed: { candidates: ImportCandidate[]; skipped: { source: string; reason: string }[] };
+  detected: { source: string; label: string; confidence: string; matched: string[]; note?: string };
+  unmapped: string[];
+} {
+  const outcome = importFromPmSource(text, "");
+  return {
+    parsed: { candidates: outcome.entries, skipped: outcome.skipped },
+    detected: {
+      source: outcome.detection.source.id,
+      label: outcome.detection.source.label,
+      confidence: outcome.detection.confidence,
+      matched: outcome.detection.matched,
+      note: outcome.detection.note,
+    },
+    unmapped: outcome.unmappedColumns,
+  };
 }

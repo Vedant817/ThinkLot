@@ -79,3 +79,13 @@ export type {
   ImportCandidate,
   ImportResult,
 } from "../../../../src/lib/portability";
+
+/*
+ * Getting ideas in from the tools a product manager actually uses.
+ *
+ * The web client already calls this; the mobile client now calls the same one, so a
+ * Jira export that parses on one parses on the other. Two implementations would mean
+ * two different answers for the same file.
+ */
+export { importFromPmSource, PM_SOURCES } from '../../../../src/lib/pm-import';
+export type { PmSource, Detection } from '../../../../src/lib/pm-import';
