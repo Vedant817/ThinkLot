@@ -123,12 +123,117 @@ Both clients now generate from `EXPORT_TARGETS`.
 - board columns, and a READY -> BUILDING stage move
 - all five export targets, sharing Jira with the real import steps in the note
 
+## Third run: the previously-unverified list, worked through
+
+Device online, dev build over Metro except where noted. Each item below was either
+verified, fixed, or is stated as still open.
+
+### Banner: verified, and fixed again
+
+Airplane mode over USB (adb survives it). The banner rendered: "Offline — ideas may
+not save" with Dismiss. Dismiss works; disabling airplane mode cleared it on
+reconnect. But its first screenshot showed the text colliding with the status bar:
+as a sibling of the navigator it sits outside SafeAreaProvider's insets, so it now
+takes its own via `useSafeAreaInsets`. Re-verified after the fix.
+
+### Parked archive/restore: real bug, fixed server-side
+
+Park 7d, archive, restore — the idea came back as `inbox`, silently discarding the
+dated park, and with `revisitAt` still set the queue then suppressed it as a dated
+park while its status read inbox: invisible for 7 days, then back as inbox.
+`setArchived` deliberately stored nothing when the idea was already parked, treating
+`parked` as scratch rather than a stage. It now remembers the actual stage
+unconditionally; remembering `parked` cannot regress the stale-client-row case the
+special-case was written for, because the client hint stays a fallback for legacy
+rows only. Verified on device (back as `parked`, revisit date intact) and by a
+targeted HTTP probe covering the old contracts too. e2e section 8 extended with the
+parked case. The mobile button said "Restore to inbox" (describing the bug); it
+says "Restore" like web now.
+
+### Import: full round-trip on device
+
+The real Jira fixture pasted line-by-line into the Account import field: "3 new",
+"Read as Jira — saw issue key, issue type, resolution, story points", 13 unmapped
+columns named, per-idea rows with tags, "Import 3 ideas" → "Imported 3.", all three
+visible on the Lot with plates, descriptions and tags.
+
+### Scoring: set, header, clear
+
+Impact 8 / effort 2 / confidence 7 via the stepper buttons → header reads
+`parked · priority 28.0`, maturity drops "a score" from its missing list, Home
+counts update. Clearing confidence returns the header to `--`. (One blind tap in
+the harness set confidence 1 on a different idea mid-run; cleared as part of the
+test, and it demonstrated the steppers respond.)
+
+### Tags, tasks, favorites
+
+Add tag → `#neighbors` chip with Remove. Add task → "0 of 1", complete → "1 of 1"
+with ✓ and "Mark unfinished". Task delete is one tap with no confirm — checked
+against web, which does the same; tasks are retypeable, ideas confirm on both, so
+parity holds and nothing changed. Mark favorite → "Remove favorite".
+
+### Idea delete: native confirm verified
+
+"Delete idea permanently" opens a native Alert ("Delete this idea? / Its tasks will
+also be permanently deleted." / CANCEL / DELETE). CANCEL dismisses with nothing
+deleted. (It first appeared from a harness mis-tap, which is also how we know the
+destructive button is reachable — but that says nothing about layout safety, and no
+layout claim is made from it.)
+
+### Sign-out/in cycle
+
+Sign out returns to the sign-in screen; signing back in restores the session and
+all 7 ideas intact (SecureStore survives).
+
+### Search
+
+"handover" filters to 1 of 5 correctly. (The same run left the capture draft
+holding an earlier typed sentence; saving it kept state clean.)
+
+### Still not verified
+
+- Board drag-and-drop (the ⠿ handle). The select-then-move flow is verified; the
+  drag gesture itself has never been exercised and is hard to drive over adb.
+- The cold-start splash visual. It is configured (dark paper, system-ui behind it)
+  but no screenshot of the ~1s splash window was captured.
+- iOS, `skip`, CI: unchanged from before.
+
+## Size, speed, and the decremental constraint
+
+Release APK (arm64-only): **41.9MB**, of which our entire JS bundle (Hermes
+bytecode, minified) is **3.0MB — 7%**. dex is 38.8MB uncompressed, native libs
+20MB: libreactnative 7MB, Hermes 2.5MB, Reanimated 1.7MB + worklets 1.3MB (both
+required by expo-router's drawer — removing them means dropping the router),
+expo-modules-core 1.5MB. Local data footprint is ~50KB (drafts, tokens, prefs);
+the 7.3MB seen in `files/` is the dev-bundle cache, which does not exist in
+release builds. Everything else lives in Convex: that is what makes the footprint
+decremental rather than growing with use.
+
+Cold start on release: activity launch ~230ms, content in ~5s (session intact),
+dominated by TLS + WebSocket + first queries, not by the client. No custom fonts
+are loaded anywhere and there are no blocking splash calls, so there is nothing
+left on the client side to cut without the native toolchain.
+
+What would actually shrink it, honestly: ProGuard + resource shrinking (needs
+`expo-build-properties`, which cannot be installed — npm `allow-scripts` policy
+blocks it — and hand-editing the generated `android/` is against the repo rules),
+and dropping expo-router (a rewrite, not a tweak). The floor for an Expo app is
+~25–35MB; this one at 42MB is near it, not far above it.
+
 ## Not verified
 
-- **The banner itself has never been seen rendering.** Its state logic is unit-tested
-  and it is mounted correctly now, but the transport has stayed up through every run.
 - iOS is untouched and Mac-only. `verify:contracts` verifies 16 Convex function
   contracts by parsing the Swift structs; Swift compilation remains unverifiable here.
 - `decide later` (`skip`) is defined in `src/lib/review.ts` and reachable from neither
   client, so a user cannot make that decision at all. Left as an open design question.
+- **AI on mobile is missing, not just unverified.** `ai-credentials.ts`
+  (SecureStore-backed key storage) exists but nothing imports it: no provider picker,
+  no AI settings screen, no per-idea AI action. The shared core (`providers`,
+  `adapters`, `client`, `prompts`) is pure TS + `fetch` with no DOM dependency —
+  only web `credentials.ts` touches localStorage — so the gap is UI, not plumbing.
+  Scoped as the next build: an Account-section settings screen reusing `PROVIDERS` +
+  `validateConfig` + `callModel` against `ai-credentials.ts`, and a per-idea action
+  reusing `summariseMessages`/`duplicateMessages`. Nothing was built this run; the
+  run was verification, and building it mid-flight would have invalidated the
+  release measurements.
 - No CI. Every gate in this document was run by hand.
