@@ -154,3 +154,34 @@ behind the ones that do not.
 - [ ] **iOS: spec fields `audience` / `outcome` / `trigger`** - `apps/ios/Sources/Models.swift`
       has no `audience`, `outcome` or `trigger`, so the iOS detail screen cannot show three
       of the six Inbox fields the spec asks for. Cannot be compiled on this host.
+
+---
+
+## From the second physical-device run
+
+- [x] **Sign-in on Android** - the session was hand-written to AsyncStorage with the
+  raw library key. The client stores through `expo-secure-store` under a NAMESPACED
+  key. Root-caused from a logcat trace, fixed by letting `useAuthActions().signIn`
+  establish the session. Both clients.
+- [x] **Offline banner** - was a bare child of `Stack`, then a `Stack.Screen`;
+  both shapes render nothing. Now a sibling of the navigator reading
+  `subscribeToConnectionState`. See `verify-offline-banner.ts`.
+- [x] **`letGoReason` was stored and never displayed** - now on the idea detail and
+  archive row in both clients; shipped conditionally into `toSummary` so it is free
+  for ideas that were never let go.
+- [x] **Board Move unreachable at some scroll positions** - 300dp hard-coded column on
+  a 344dp viewport. Now derived from the measured viewport and snapped.
+- [x] **Mobile export was as stale as web's was** - both now generate from
+  `EXPORT_TARGETS`. `verify-export-targets.ts` fails if a target reaches neither.
+- [ ] **`skip` / "Decide later"** is defined in `src/lib/review.ts` and offered by
+  neither client. Open design question, not fixed.
+- [ ] **The banner has never been seen rendering** - the transport has stayed up.
+- [ ] CI. No CI exists; every gate is run by hand.
+- [ ] **A production Convex deployment was created by mistake.** `npx convex deploy`
+  was used to push a change and it targeted `wry-otter-609`, which the Convex status
+  tool reports as kind `prod` - while the deployment the app uses is
+  `posh-chihuahua-240`, a `dev` deployment. The change was then pushed to dev with
+  `npx convex dev --once`. The prod deployment should be deleted, and `convex deploy`
+  should never be used here without confirming the target first.
+- [ ] **Account leak** - `verify:web` and `verify-e2e` create throwaway accounts on
+  the live deployment each run. `verify:web` ran during this session.

@@ -1,183 +1,134 @@
-# Mobile verification — October 8, 2026
+# Mobile verification
 
-## Implemented clients
+Every claim below names the evidence it rests on. Where a claim could not be
+supported, the gap is stated rather than smoothed over.
 
-React Native / Expo SDK 57 in apps/mobile and a separate SwiftUI / ConvexMobile 0.8.1 app in apps/ios. Both use the existing real Convex API; neither seeds runtime sample ideas. Changes are committed by feature. The backend optional archive/favorite/priority filters were deployed to the existing personal development deployment. No production deployment or app-store submission occurred.
+## Physical device runs
 
-## Current evidence
+Two runs on a **Samsung Galaxy A22** (`SM_A226B`, Android 13 / API 33, arm64-v8a,
+1080x2408 @ 450dpi = 384x768dp), over USB, with a release APK and then a debug APK
+served by Metro.
 
-- Backend: `npm run verify:e2e` — **132 live checks** against the dev deployment, including every negative authorization case and the stats-reconciliation invariants behind the dashboard counts.
-- Web: svelte-check 0 errors/warnings; production build passes; shortcut suite 36/36. Pure-function and HTTP-level checks confirm long capture preservation, safe destination handling, and that every app route serves 200. **No browser has ever been attached to this session, so no rendered web UI has been verified** — that is the largest gap on this project and it is not closeable from this toolchain.
-- React Native: typecheck/lint pass; Expo Doctor 21/21; Android and iOS Hermes exports pass; web export passes. Exports validate bundling, not native rendering or signing.
-- Expo web runtime: one existing QA account, one idea and one task exercised capture, text save/clear, score set/clear, tags, review/promote, archive/restore, task add/complete/rename/delete, unsaved navigation confirmation and idea deletion. Cleanup verified dashboard at zero ideas. The editor-preservation logic is now pinned by `scripts/verify-capture-regressions.ts`, which runs offline and free.
-- **Spec-field parity**: the idea detail screen in this client edits "who is it for", "expected outcome" and "source / trigger", with the same omit/null/value contract as every other field. Writing those checks is what exposed the `reconcile` aliasing bug described in the git history — `values` and `baseline` were the same object, so mutating one moved the other and a realtime update silently discarded in-progress text.
-- Swift: static contract check passes 16 existing functions and selected configuration/encoding invariants. XCTest sources exist but require Apple SDKs. Native compilation, tests, simulator, device and VoiceOver acceptance are unverified on this Windows host.
-- Database usage: reused one QA account, tiny sequential fixtures, cleaned ideas/tasks and no full live stress suite. Convex still reports account-level Free plan usage above limits; this run has not demonstrated that account usage is below limits. Screen subscriptions are released on blur; search is debounced.
+Run 1 had **no usable network** on the device (`Active default network: none`,
+`ping 8.8.8.8` returned `Network is unreachable`, Wi-Fi enabled, mobile data on,
+airplane off). It established launch, rendering at 1080x2408, form input, and the
+disabled-button behaviour; it also found the missing offline indication.
 
-## Android on a real device — done, and it changed the code
+Run 2 had a live network and drove the authenticated workflow end to end. It is the
+run that found the sign-in defect below.
 
-The Expo Go attempt recorded below was abandoned: its screen stayed blank and no
-amount of server rebinding changed that, so it was never a passing device check.
-What followed was a **local native release build**, which is a different and
-stronger thing.
+### Sign-in on Android did not work at all
 
-- Release APK built with real device ABIs — `armeabi-v7a`, `arm64-v8a`, `x86_64`.
-  A debug or dev-bundle APK would not have exercised the production JS path.
-- Installed on an Android 15 / API 36 emulator at 1080x2400 and walked by hand:
-  sign up → capture → LOT-0001 → every tab.
-- Checked on screen: light and dark palettes, 1.3x system font scale, and a
-  360x640dp small phone.
+Symptom: tapping "Create account" left the button permanently disabled, with the
+backend provably healthy (a live `signInProxy` signUp returns tokens in ~1.1s).
 
-**Four defects that only a device could show**, all found this way and fixed:
-
-1. The first chip in the filter strip was clipped at the screen edge.
-2. The title rendered underneath the tab bar — fixed by raising the bottom
-   padding from 30 to 100, the value being a guess until it was looked at.
-3. A card border drawn around an invisible surface: `#f6f6f4` text on a `#ffffff`
-   background, i.e. a border with nothing behind it.
-4. The palette had drifted from the web tokens, so the two clients were not
-   actually the same design.
-
-**Caveats that remain true.** An emulator is not a physical device: no real
-touch target under a thumb, no OEM battery or background-process behaviour, and
-screen recording and animations are unreliable on this harness instance.
-
-## Second release build — the spec fields, verified on device
-
-Rebuilt (14m29s, three real ABIs) and reinstalled to check the three spec fields
-that were added to the idea detail screen — *who is it for*, *expected outcome*,
-*source / trigger* — which had previously only been typechecked.
-
-Walked on screen, at 1080x2400:
-
-1. Launch with a session restored from an earlier run — the Home tab rendered with
-   the persisted idea, violet primary action, Feather tab icons and a violet active
-   tab.
-2. Lot → LOT-0001 → detail. All three fields present and correctly labelled.
-3. Typed `field engineers` into *who is it for* and `a staff meeting` into *source
-   / trigger*. The Save button went violet and the note changed to "Text edits are
-   waiting to be saved" — the dirty state is real, not cosmetic.
-4. Saved. The note reverted to "Text saved" and the button greyed out.
-5. **Persistence checked independently of the editor.** Searched `field engineers`
-   in the lot search box and LOT-0001 came back. That string appears nowhere in the
-   idea's title or description — it exists only in the `audience` column — so the
-   value is in Convex and the search genuinely covers the new field. Verifying via
-   the same screen that wrote it would only have proved the optimistic state.
-
-The three device-found fixes from the first build are confirmed on screen in this
-build: the filter strip's first chip is fully visible, and the list heading clears
-the tab bar.
-
-**Not covered by this walk:** iOS, VoiceOver, tablet and foldable widths, rotation
-mid-edit, and the two-client race that the `reconcile` aliasing fix addresses —
-that needs a second client writing to the same idea, which one emulator cannot do.
-The fix is covered by `scripts/verify-capture-regressions.ts` instead, which is
-what found it.
-
-## Pending acceptance and known gaps
-
-The Expo Go path could not download from an IPv6-only localhost server, then
-received the bundle after changing the server binding, and its screen remained
-blank throughout. That path is dead; do not spend time on it. Use the native
-release APK.
-
-iOS testing requires macOS/Xcode; neither platform's store signing/publication was performed. Swift drafts remain view-memory only. The React Native board has six columns, drag/drop between visible columns and explicit accessible move controls; list/card toggle is implemented. Mouse drag/drop, cross-screen freshness and rejected-save draft preservation were verified in Expo web. App-specific voice capture is absent. System keyboard dictation is available. Reminder delivery and optional Notion/AI/backlog integrations are not implemented here. Concurrent writes to the same edited field still follow server last-write behavior. Existing list queries still scan an owner's rows before filtering/capping: do not infer large-account scalability from these small fixtures.
-
-Full production, physical-device, long-lived refresh, accessibility and offline/reconnect journeys remain acceptance work; the checks above support only the specific behaviors observed.
-
----
-
-## Reproducing the Android build
-
-The build has three traps that all fail in misleading ways.
-
-**1. Long paths.** Ninja rejects source paths over 260 characters, and this
-repository's path is long enough to cross that line during a native build. Copy
-the app to a short root first:
-
-```powershell
-robocopy <repo>\apps\mobile C:\tl\apps\mobile /MIR /NFL /NDL /NJH /NJS /NP
-robocopy <repo>\src            C:\tl\src            /MIR /NFL /NDL /NJH /NJS /NP
-robocopy <repo>\node_modules   C:\tl\node_modules   /MIR /NFL /NDL /NJH /NJS /NP
-```
-
-The app imports `../../../../src/convex/_generated`, so `src/` has to come
-along; it is generated by `npx convex dev --once`, which pushes the functions
-*and* regenerates the API. `npx convex codegen` does not push.
-
-**2. Stale native build caches defeat the whole point of `C:\tl`.** *(added after a
-build failed here, 8m38s in.)*
-
-`robocopy /MIR` copies **everything**, and `apps\mobile/node_modules` contains `.cxx`
-directories from previous builds. Those embed the **absolute path they were configured
-at** — so copying them into `C:\tl` ships CMake caches pointing back at the long repo
-path, and Ninja is back to compiling over 260 characters despite the short root.
-
-The failure is misleading because it is not obviously about paths:
+Instrumenting `submit()` and reading `logcat` gave the answer, which was not any of
+the reasons being considered:
 
 ```
-Execution failed for task ':expo-modules-core:buildCMakeRelWithDebInfo[armeabi-v7a]'.
+submit:signInProxy resolved tokens=true      (0.8s)
+submit:jwt stored / refresh stored           (47ms)
+submit:waitForAuth=false                     (4s later, still not authenticated)
 ```
 
-Six `.cxx` directories across five native modules were involved
-(`expo-modules-core`, `react-native-gesture-handler`, `react-native-reanimated`,
-`react-native-screens`, `react-native-worklets`), and the tell was inside the cached
-`CMakeOutput.log`, whose compile lines still referenced
-`Documents/Resources/ThinkLot/apps/mobile/...`.
+`index.tsx` was writing the session itself - `AsyncStorage.setItem("__convexAuthJWT")`
+- on the reasoning that those were "the same keys the library persists". Two things
+are wrong with that, both verifiable in `node_modules`:
 
-**Purge build output after copying, and in the source tree too** — otherwise the next
-copy re-imports them:
+1. **Wrong store.** `tokenStorage` (`src/lib/auth.ts`) is `expo-secure-store`.
+   AsyncStorage is a different, non-secure store entirely.
+2. **Wrong key.** `@convex-dev/auth@0.0.96` namespaces every storage key -
+   `` `${key}_${escapedNamespace}` `` in `dist/react/client.js` line 289, with the
+   namespace defaulting to the deployment URL. So the bare key is never read, in
+   any store.
 
-```powershell
-# after the robocopy lines above
-Get-ChildItem -Recurse -Path C:\tl -Directory -Force -Filter .cxx |
-  Remove-Item -Recurse -Force
-Get-ChildItem -Recurse -Path C:\tl\apps\mobile -Directory -Filter build |
-  Where-Object { $_.FullName -match 'node_modules\\[^\\]+\\android\\build$' } |
-  Remove-Item -Recurse -Force
-Remove-Item C:\tl\apps\mobile\android\app\build -Recurse -Force -ErrorAction SilentlyContinue
-```
+The fix is to stop hand-writing the session: `signInProxy` authorises the credentials
+(metered, error-normalising, per-address budget), then `useAuthActions().signIn`
+establishes the session through the client's own storage. Both clients now do this.
 
-Run the same purge against `<repo>\apps\mobile`. These are gitignored build output with
-zero tracked files beneath them, so this deletes nothing that belongs to the repository.
+### A second, worse bug was introduced trying to fix the first one
 
-**3. A dev bundle that looks like a release.** `NODE_ENV` must be `production`,
-and it must be set in the same shell that launches Gradle:
+The first fix polled `isAuthenticated` with a 4s bound, reasoning that a lost race
+should become a visible error. It worked: the user got a message. The message was
+**wrong** - sign-up had succeeded and the app had already navigated, but the
+`index` screen unmounts the moment the auth guard flips, so the effect maintaining the
+ref never ran. The poll timed out against a value that had stopped being written and
+told the user "Signed in, but the app did not pick it up."
 
-```powershell
-cd C:\tl\apps\mobile\android
-$env:NODE_ENV="production"
-& "C:\tl\apps\mobile\android\gradlew.bat" assembleRelease `
-  "-PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64" --no-daemon
-```
+Recorded because the flawed fix is not obviously worse than the original bug at the
+time: it looked like better error reporting. It converted a hang into a lie. The poll
+is gone; `signIn` resolving *is* the session, and rejecting is the failure.
 
-Two separate mistakes live here:
+### The offline banner was built wrong twice
 
-- The architecture list **must be quoted**. Unquoted, PowerShell parses the commas
-  as an argument separator and fails with `Missing argument in parameter list`.
-- `gradlew.bat` **must be invoked by absolute path**, not as `cmd /c gradlew.bat`
-  and not via `workdir` alone. The relative invocation fails.
-- Omitting `NODE_ENV` still produces an installable APK, but it contains a
-  **development** JS bundle. It runs, so nothing tells you it is wrong.
+Run 1 found the gap. Run 2 found the fix did nothing:
 
-Output: `C:\tl\apps\mobile\android\app\build\outputs\apk\release\app-release.apk`
+- Mounting `<ConnectionBanner/>` as a bare child of `<Stack>` produced
+  `W ReactNativeJS: Unknown child element passed to Stack: function ConnectionBanner(a0)`
+  in logcat, and rendered nothing.
+- Recasting it as `<Stack.Screen name="connection">` would never have mounted either,
+  because declaring a route does not focus it.
 
-## Emulator notes
+It is now a sibling of the navigator, absolutely positioned, outside the auth guard -
+the original bug was a device with no network sitting on the *sign-in* screen, so the
+banner is most needed exactly where authentication has not succeeded.
 
-```powershell
-adb -s emulator-5554 install -r <apk>
-adb -s emulator-5554 shell wm size          # 1080x2400
-adb -s emulator-5554 exec-out screencap -p > shot.png
-```
+State comes from a real subscription, not a render-time read:
+`connectionState()` returns a plain snapshot with no notification path, so it only
+refreshes when some unrelated query happens to re-run. `subscribeToConnectionState`
+is what the client publishes and is what `useSyncExternalStore` needs; the snapshot is
+cached and only replaced when a flag changes, because `getSnapshot` returning a fresh
+object makes React throw.
 
-**The emulator must be started with `-gpu host`** or `screencap` returns a solid
-black image. That looks exactly like a blank screen and cost real time before it
-was identified as a capture problem rather than an app problem.
+### The archive demanded a reason and then hid it
 
-The harness instance also throws system-level ANRs under some loads. Those are
-the emulator's, not the app's — confirm by pulling up the UI hierarchy instead of
-concluding the app is wedged.
+The review screen requires one sentence to let an idea go and stores it in
+`letGoReason`. It was rendered in neither client. Now shown on the idea detail (both
+clients) and the archive row (both clients). Server-side it rides into `toSummary`
+conditionally, like `trigger`, so it costs nothing for the ideas that were never let
+go.
 
-Useful for responsive checks: `settings put system font_scale <n>` for font
-scaling, `wm size` / `wm density` for viewport changes, and
-`cmd uimode night yes|no` for dark mode.
+### The board's Move control was unreachable on a phone
+
+Column width was a hard-coded 300dp, justified as "a full column plus a deliberate
+peek". On a 384dp phone, the page's own 20dp padding clips the scroll viewport to
+344dp, so the second column is a 28dp sliver. A card in that sliver had its
+`[Open][Move]` row laid out past the clip: the accessibility tree reported Move with
+an **inverted bounds rect** (`[1068,834][1024,947]`) and no text child, the screenshot
+showed only Open, and tapping its coordinates did nothing.
+
+Columns now derive from the measured viewport (88%) and snap, so one dominant column
+is always fully visible with a real peek.
+
+Worth noting what this was NOT: the select-then-move logic, the reason gate and the
+stage mutation were all correct. It was reachability, and it only reproduced at some
+scroll positions - which is why it took a screenshot to diagnose.
+
+### Mobile had the same stale export section as web
+
+Three hand-written buttons naming only Notion, JSON and CSV, so Jira, Linear and
+Obsidian were unreachable from a phone even though `$lib/export` produces all three.
+Both clients now generate from `EXPORT_TARGETS`.
+
+## Walked and verified on hardware
+
+- sign-up and sign-in, with the session surviving a full app restart (SecureStore)
+- capture, typed and dictated. `adb input text` injects the whole string in one change
+  event, which the dictation heuristic cannot tell apart from Wispr Flow - so the
+  toast was checked both ways, typing character by character at ~180ms.
+- LOT plates monotonic, drafts surviving a tab switch, the unsaved-edit guard
+- all four review decisions, including the reason gate enabling only when a reason is
+  typed
+- archive retention with the prior stage, and restore
+- board columns, and a READY -> BUILDING stage move
+- all five export targets, sharing Jira with the real import steps in the note
+
+## Not verified
+
+- **The banner itself has never been seen rendering.** Its state logic is unit-tested
+  and it is mounted correctly now, but the transport has stayed up through every run.
+- iOS is untouched and Mac-only. `verify:contracts` verifies 16 Convex function
+  contracts by parsing the Swift structs; Swift compilation remains unverifiable here.
+- `decide later` (`skip`) is defined in `src/lib/review.ts` and reachable from neither
+  client, so a user cannot make that decision at all. Left as an open design question.
+- No CI. Every gate in this document was run by hand.
